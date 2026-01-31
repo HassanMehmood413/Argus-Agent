@@ -1,44 +1,17 @@
-"""
-Slack Webhook Handler
-
-This module handles Slack interactive component callbacks (button clicks).
-
-HOW SLACK WEBHOOKS WORK:
-========================
-1. User clicks Approve/Reject button in Slack
-2. Slack sends POST request to this webhook endpoint
-3. We verify the request is from Slack
-4. We extract the decision and incident_id
-5. We call Command(resume=decision) on the approval graph
-6. The graph resumes from where it was interrupted
-
-SLACK APP SETUP REQUIRED:
-=========================
-1. Create a Slack App at https://api.slack.com/apps
-2. Enable "Interactivity & Shortcuts"
-3. Set Request URL to: https://your-domain.com/api/agent/slack/interactions
-4. Add Bot Token Scopes: chat:write, chat:update
-5. Install the app to your workspace
-6. Copy the Bot Token (xoxb-...) to your .env as SLACK_BOT_TOKEN
-7. Copy the Signing Secret to your .env as SLACK_SIGNING_SECRET
-"""
-
 import hashlib
 import hmac
-import json
-import logging
 import time
+import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from langgraph.types import Command
-
+from fastapi import HTTPException, Request
 from backend.config.settings import settings
+from langgraph.types import Command
 from backend.modules.approval.graph import approval_subgraph
 from backend.modules.execution.graph import executor_subgraph
+from backend.modules.orchestrator import process_incident
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
 
 
 def verify_slack_signature(
@@ -127,65 +100,6 @@ async def verify_slack_request(request: Request) -> bytes:
 
     return body
 
-
-@router.post("/slack/interactions")
-async def handle_slack_interaction(
-    body: bytes = Depends(verify_slack_request),
-):
-    """
-    Handle Slack interactive component callbacks.
-
-    This is called when a user clicks Approve/Reject/Modify buttons.
-
-    THE FLOW:
-    1. User clicks button in Slack
-    2. Slack sends POST here with action details
-    3. We extract incident_id and decision
-    4. We call Command(resume=decision) on the graph
-    5. Graph resumes and completes
-    6. We return 200 OK to Slack
-
-    WHY RETURN 200 IMMEDIATELY?
-    - Slack expects response within 3 seconds
-    - Graph execution might take longer
-    - We acknowledge first, then process async
-
-    Request Body (form-encoded):
-        payload: JSON string with interaction details
-
-    Returns:
-        200 OK (Slack requires this)
-    """
-    # Parse the payload
-    # Slack sends payload as form-encoded, not JSON
-    try:
-        # Decode body and parse form data
-        body_str = body.decode("utf-8")
-
-        # Handle URL-encoded payload
-        if body_str.startswith("payload="):
-            import urllib.parse
-            payload_str = urllib.parse.unquote(body_str.replace("payload=", ""))
-            payload = json.loads(payload_str)
-        else:
-            payload = json.loads(body_str)
-
-    except Exception as e:
-        logger.error(f"[Webhook] Failed to parse payload: {e}")
-        raise HTTPException(status_code=400, detail="Invalid payload")
-
-    logger.info(f"[Webhook] Received interaction: {payload.get('type')}")
-
-    # Handle different interaction types
-    interaction_type = payload.get("type")
-
-    if interaction_type == "block_actions":
-        return await handle_button_click(payload)
-    elif interaction_type == "view_submission":
-        return await handle_modal_submission(payload)
-    else:
-        logger.warning(f"[Webhook] Unknown interaction type: {interaction_type}")
-        return {"ok": True}
 
 
 async def handle_button_click(payload: dict) -> dict:
@@ -338,11 +252,32 @@ async def resume_approval_graph(incident_id: str, decision: dict) -> None:
     # The config must have the same thread_id as when the graph was started
     config = {"configurable": {"thread_id": incident_id}}
 
+    logger.info(f"[Webhook] Using config: {config}")
+
     # Create the resume command
     # This is what "wakes up" the paused graph
     resume_command = Command(resume=decision)
 
+    logger.info(f"[Webhook] Created Command(resume={decision})")
+
     try:
+        # Check if there's a checkpointed state for this thread_id
+        # This helps debug if the graph was never started or used wrong thread_id
+        checkpointer = approval_subgraph.checkpointer
+        if checkpointer:
+            try:
+                state = await approval_subgraph.aget_state(config)
+                if state and state.values:
+                    logger.info(f"[Webhook] Found checkpointed state for {incident_id}")
+                    logger.info(f"[Webhook] State keys: {list(state.values.keys())}")
+                    logger.info(f"[Webhook] Next nodes: {state.next}")
+                else:
+                    logger.warning(f"[Webhook] NO checkpointed state found for {incident_id}!")
+                    logger.warning("[Webhook] This means the graph was never started with this thread_id")
+                    logger.warning("[Webhook] Make sure you used /api/v1/test/approval/workflow to start the flow")
+            except Exception as e:
+                logger.warning(f"[Webhook] Could not check state: {e}")
+
         result = await approval_subgraph.ainvoke(resume_command, config)
 
         logger.info(
@@ -352,6 +287,8 @@ async def resume_approval_graph(incident_id: str, decision: dict) -> None:
 
     except Exception as e:
         logger.error(f"[Webhook] Error resuming graph for {incident_id}: {e}")
+        import traceback
+        logger.error(f"[Webhook] Traceback: {traceback.format_exc()}")
         raise
 
 
@@ -394,18 +331,36 @@ async def resume_execution_graph(incident_id: str, decision: str) -> None:
         raise
 
 
-@router.get("/slack/health")
-async def slack_webhook_health():
-    """
-    Health check for Slack webhook endpoint.
 
-    Returns:
-        Health status
-    """
-    return {
-        "status": "healthy",
-        "endpoint": "/agent/slack/interactions",
-        "signing_secret_configured": bool(
-            getattr(settings, "SLACK_SIGNING_SECRET", None)
-        ),
-    }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BACKGROUND TASK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _process_incident_background(
+    alert: dict,
+    severity: str,
+    incident_id: str,
+    slack_channel: str = None,
+) -> None:
+    """Background task to process incident."""
+
+    logger.info(f"[API Background] Starting processing for {incident_id}")
+
+    try:
+        result = await process_incident(
+            alert=alert,
+            severity=severity,
+            incident_id=incident_id,
+            slack_channel=slack_channel,
+        )
+
+        logger.info(
+            f"[API Background] Completed processing for {incident_id}: "
+            f"status={result.get('status')}"
+        )
+
+    except Exception as e:
+        logger.error(f"[API Background] Error processing {incident_id}: {e}")
+        import traceback
+        logger.error(f"[API Background] Traceback: {traceback.format_exc()}")

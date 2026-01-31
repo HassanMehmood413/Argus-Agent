@@ -285,4 +285,110 @@ class FullPipelineTestResponse(BaseModel):
     analyzer_result: Dict[str, Any]
     approval_result: Dict[str, Any]
     execution_result: Dict[str, Any]
+    summary_result: Optional[Dict[str, Any]] = None
     total_duration_ms: float
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUMMARY MODULE SCHEMAS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class SummaryTestRequest(BaseModel):
+    """Request to test the Summary module."""
+
+    incident_id: str = Field(
+        default="INC-2026-001",
+        description="Incident ID"
+    )
+    severity: str = Field(
+        default="high",
+        description="Incident severity"
+    )
+    root_cause: str = Field(
+        default="Memory leak in payment-service causing OOM kills",
+        description="Identified root cause"
+    )
+    confidence: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score"
+    )
+    evidence: List[str] = Field(
+        default=[
+            "Memory usage at 94.5%",
+            "2 pods in CrashLoopBackOff",
+            "Error rate 15.3% (threshold 5%)"
+        ],
+        description="Evidence supporting the analysis"
+    )
+    recommended_actions: List[Dict[str, Any]] = Field(
+        default=[
+            {"type": "restart_pod", "target": "payment-service-abc123", "risk_level": "low", "description": "Restart unhealthy pod"},
+            {"type": "scale_up", "target": "payment-service", "replicas": 3, "risk_level": "medium", "description": "Scale up replicas"}
+        ],
+        description="Recommended actions"
+    )
+    approved_by: str = Field(
+        default="john.doe",
+        description="User who approved the actions"
+    )
+    execution_results: List[Dict[str, Any]] = Field(
+        default=[
+            {"action": {"type": "restart_pod", "target": "payment-service-abc123", "description": "Restart unhealthy pod"}, "success": True, "output": "Pod restarted successfully"},
+            {"action": {"type": "scale_up", "target": "payment-service", "description": "Scale up replicas"}, "success": True, "output": "Scaled to 3 replicas"}
+        ],
+        description="Results from action execution"
+    )
+    all_succeeded: bool = Field(
+        default=True,
+        description="Whether all actions succeeded"
+    )
+    created_at: Optional[str] = Field(
+        default=None,
+        description="Incident creation timestamp (ISO format). If not provided, uses 15 minutes ago."
+    )
+    send_to_slack: bool = Field(
+        default=False,
+        description="Actually send summary to Slack (requires SLACK_BOT_TOKEN)"
+    )
+    slack_channel: Optional[str] = Field(
+        default=None,
+        description="Slack channel (uses default if not set)"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "incident_id": "INC-2026-001",
+                    "severity": "high",
+                    "root_cause": "Memory leak in payment-service",
+                    "confidence": 0.85,
+                    "evidence": ["Memory at 94%", "2 crashed pods"],
+                    "recommended_actions": [
+                        {"type": "restart_pod", "target": "pod-123", "description": "Restart pod"}
+                    ],
+                    "approved_by": "john.doe",
+                    "execution_results": [
+                        {"action": {"type": "restart_pod", "description": "Restart pod"}, "success": True}
+                    ],
+                    "all_succeeded": True,
+                    "send_to_slack": False
+                }
+            ]
+        }
+    }
+
+
+class SummaryTestResponse(BaseModel):
+    """Response from Summary module test."""
+
+    incident_id: str
+    summary: str
+    resolution_time_seconds: float
+    resolution_time_display: str
+    slack_sent: bool
+    slack_message_ts: Optional[str] = None
+    slack_error: Optional[str] = None
+    postmortem_ticket: Optional[str] = None

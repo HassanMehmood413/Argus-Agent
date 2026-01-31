@@ -38,12 +38,14 @@ result = compiled_graph.invoke(
 
 import logging
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.memory import MemorySaver
 
 from backend.core.config import get_settings
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +71,7 @@ def get_checkpointer_sync() -> MemorySaver:
     return MemorySaver()
 
 
-async def get_async_checkpointer() -> AsyncPostgresSaver:
+async def get_async_checkpointer() -> "AsyncPostgresSaver":
     """
     Get an async PostgreSQL checkpointer.
 
@@ -84,6 +86,9 @@ async def get_async_checkpointer() -> AsyncPostgresSaver:
     Returns:
         AsyncPostgresSaver instance (already setup)
     """
+    # Lazy import to avoid issues when postgres dependencies aren't installed
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
     settings = get_settings()
 
     # Convert asyncpg URL to psycopg format
@@ -110,7 +115,7 @@ async def get_async_checkpointer() -> AsyncPostgresSaver:
 _sync_checkpointer: Optional[MemorySaver] = None
 
 # For async contexts (FastAPI, production)
-_async_checkpointer: Optional[AsyncPostgresSaver] = None
+_async_checkpointer: Optional["AsyncPostgresSaver"] = None
 
 
 def get_checkpointer() -> MemorySaver:
@@ -129,7 +134,7 @@ def get_checkpointer() -> MemorySaver:
     return _sync_checkpointer
 
 
-async def get_production_checkpointer() -> AsyncPostgresSaver:
+async def get_production_checkpointer() -> "AsyncPostgresSaver":
     """
     Get the production async PostgreSQL checkpointer (singleton).
 

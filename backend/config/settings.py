@@ -5,6 +5,7 @@ Centralized configuration using Pydantic Settings for environment variable manag
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
 from pydantic import Field
 from typing import Optional
 import json
@@ -61,6 +62,18 @@ class Settings(BaseSettings):
     # Kubernetes Configuration
     K8S_IN_CLUSTER: bool = False  # True if running inside Kubernetes
 
+    # Jira Configuration (for Postmortem tickets)
+    JIRA_URL: Optional[str] = None  # https://company.atlassian.net
+    JIRA_EMAIL: Optional[str] = None  # user@company.com
+    JIRA_API_TOKEN: Optional[str] = None  # API token from Atlassian
+    JIRA_PROJECT_KEY: str = "POST"  # Project key for postmortems
+    JIRA_POSTMORTEM_ISSUE_TYPE: str = "Task"  # Issue type (Task, Bug, or custom)
+
+    @property
+    def JIRA_CONFIGURED(self) -> bool:
+        """Check if Jira is properly configured."""
+        return all([self.JIRA_URL, self.JIRA_EMAIL, self.JIRA_API_TOKEN])
+
     @property
     def AUTO_APPROVE_RISK_LEVELS(self) -> list[str]:
         """Parse risk levels from env or use default."""
@@ -72,5 +85,9 @@ class Settings(BaseSettings):
         return [x.strip().strip('"').strip("'") for x in v.split(",")]
 
 
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
 # Global settings instance
-settings = Settings()
+settings = get_settings()

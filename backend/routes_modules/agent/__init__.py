@@ -2,18 +2,17 @@
 Agent Routes Module
 
 Routes for agent-related operations:
+- Incident management (create, status, resume)
 - Slack webhook handlers (for approval button clicks)
-- Agent invocation endpoints
-- Agent status endpoints
 """
 
 from fastapi import APIRouter
 
-from backend.routes_modules.agent.webhook import router as webhook_router
+from backend.routes_modules.agent.routes import router as agent_routes
 
-router = APIRouter(prefix="/agent", tags=["agent"])
+router = APIRouter(prefix="/agent", tags=["Agent"])
 
-# Include the webhook routes
-router.include_router(webhook_router)
+# Include all agent routes
+router.include_router(agent_routes)
 
 __all__ = ["router"]

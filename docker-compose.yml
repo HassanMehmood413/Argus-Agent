@@ -1,0 +1,99 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      # Override for container networking (Qdrant uses cloud URL from .env)
+      - POSTGRES_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-incident_agent}
+      - REDIS_URL=redis://redis:6379/0
+      - K8S_IN_CLUSTER=${K8S_IN_CLUSTER:-false}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MODEL=${MODEL}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL}
+      - MAX_SIMILAR_INCIDENTS=${MAX_SIMILAR_INCIDENTS}
+      - SIMILARITY_THRESHOLD=${SIMILARITY_THRESHOLD}
+      - MAX_ACTIONS=${MAX_ACTIONS}
+      - CONFIDENCE_THRESHOLD=${CONFIDENCE_THRESHOLD}
+      - AUTO_APPROVE_RISK_LEVELS=${AUTO_APPROVE_RISK_LEVELS}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET}
+      - SLACK_DEFAULT_CHANNEL=${SLACK_DEFAULT_CHANNEL}
+      - SLACK_APPROVAL_TIMEOUT_HOURS=${SLACK_APPROVAL_TIMEOUT_HOURS}
+      - DEPLOYMENT_TOOL=${DEPLOYMENT_TOOL}
+      - EXECUTION_DRY_RUN=${EXECUTION_DRY_RUN}
+      - EXECUTION_STOP_ON_FAILURE=${EXECUTION_STOP_ON_FAILURE}
+      - EXECUTION_TIMEOUT_SECONDS=${EXECUTION_TIMEOUT_SECONDS}
+      - EXECUTION_MAX_RETRIES=${EXECUTION_MAX_RETRIES}
+      - EXECUTION_RETRY_DELAY=${EXECUTION_RETRY_DELAY}
+      - EXECUTION_RETRY_BACKOFF=${EXECUTION_RETRY_BACKOFF}
+      - ENVIRONMENT=${ENVIRONMENT}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - JIRA_URL=${JIRA_URL}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
+      - JIRA_PROJECT_KEY=${JIRA_PROJECT_KEY}
+      - JIRA_POSTMORTEM_ISSUE_TYPE=${JIRA_POSTMORTEM_ISSUE_TYPE}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - incident-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: incident-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-incident_agent}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-incident_agent}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - incident-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: incident-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - incident-network
+
+volumes:
+  postgres-data:
+  redis-data:
+
+
+networks:
+  incident-network:
+    driver: bridge
