@@ -1,98 +1,90 @@
-from typing import TypedDict, Dict, List, Any, Optional
-
-
-
 """
-EXECUTOR SUBGRAPH STATE
+Executor State Schema
 
-Executes the approved actions.
+Defines the TypedDict state schema for the Executor subgraph.
+
+This state supports:
+- Sequential action execution with loop tracking
+- Human-in-the-loop for risky actions via interrupt()
+- Slack notifications after each action
+- Skip/Abort capabilities
 """
+
+from typing import TypedDict, Dict, List, Any, Optional, Literal
+
 
 class ExecutorState(TypedDict, total=False):
     """
     State for the Executor subgraph.
-    
+
     INPUT:
-    - Actions to execute
+    - Actions to execute (from Approval module)
     - Approval confirmation
-    
+
     OUTPUT:
-    - Execution results
+    - Execution results for each action
+    - Summary of execution
     """
-    
-    # ─── INPUT ───
-    
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # INPUT (from Orchestrator/Approval)
+    # ═══════════════════════════════════════════════════════════════════════
     incident_id: str
-    # For logging
-    
     approved: bool
-    # Must be True to execute
-    # Safety check!
-    
     approved_by: str
-    # Who approved (for audit log)
-    
     actions_to_execute: List[Dict[str, Any]]
-    # Either recommended_actions or modified_actions
-    # Sorted by "order" field
-    
-    
-    # ─── EXECUTION CONFIG ───
-    
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # EXECUTION CONFIG
+    # ═══════════════════════════════════════════════════════════════════════
     dry_run: bool
-    # If True, don't actually execute, just simulate
-    # Default: False
-    
+    # If True, simulate actions only
     stop_on_failure: bool
-    # If True, stop executing if any action fails
-    # Default: True
-    
+    # If True, stop execution when an action fails
     timeout_seconds: int
-    # Max time for each action
-    # Default: 300 (5 minutes)
-    
-    
-    # ─── INTERNAL (During execution) ───
-    
+    # Timeout per action in seconds
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SLACK INTEGRATION
+    # ═══════════════════════════════════════════════════════════════════════
+    slack_channel: str
+    # Channel for notifications
+    slack_thread_ts: Optional[str]
+    # Thread for incident updates
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # LOOP TRACKING (for iterating through actions)
+    # ═══════════════════════════════════════════════════════════════════════
     current_action_index: int
-    # Which action we're on
-    
-    
-    # ─── OUTPUT ───
-    
+    # Index of action being processed (0-based)
+    current_action: Optional[Dict[str, Any]]
+    # The action currently being processed
+    last_execution_result: Optional[Dict[str, Any]]
+    # Result of the last executed action
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # HUMAN-IN-THE-LOOP (for risky actions)
+    # ═══════════════════════════════════════════════════════════════════════
+    action_decision: Optional[Literal["execute", "skip", "abort"]]
+    # Human's decision for current action:
+    # - "execute": Proceed with the action
+    # - "skip": Skip this action, continue with next
+    # - "abort": Stop all execution immediately
+    awaiting_approval: bool
+    # True when waiting for human decision on risky action
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # OUTPUT
+    # ═══════════════════════════════════════════════════════════════════════
     execution_results: List[Dict[str, Any]]
-    # Result of each action
-    # [
-    #     {
-    #         "action_id": "action-2",  # scale (order: 0)
-    #         "type": "scale",
-    #         "target": "deployment/api-gateway",
-    #         "success": True,
-    #         "message": "Scaled to 8 replicas",
-    #         "started_at": "2024-01-15T10:35:00Z",
-    #         "completed_at": "2024-01-15T10:35:15Z",
-    #         "duration_seconds": 15,
-    #         "output": "deployment.apps/api-gateway scaled"
-    #     },
-    #     {
-    #         "action_id": "action-1",  # rollback (order: 1)
-    #         "type": "rollback",
-    #         "target": "deployment/api-gateway",
-    #         "success": True,
-    #         "message": "Rolled back to revision 41",
-    #         "started_at": "2024-01-15T10:35:15Z",
-    #         "completed_at": "2024-01-15T10:35:45Z",
-    #         "duration_seconds": 30,
-    #         "output": "deployment.apps/api-gateway rolled back"
-    #     }
-    # ]
-    
+    # Results of all executed actions
+    skipped_actions: List[Dict[str, Any]]
+    # Actions that were skipped by human
     all_succeeded: bool
-    # Did everything work?
-    
+    # True if all executed actions succeeded
     failed_action: Optional[Dict[str, Any]]
-    # If something failed, which one?
-    
+    # The action that failed (if any)
+    aborted: bool
+    # True if human aborted execution
     execution_summary: str
-    # Quick summary
-    # Example: "2/2 actions succeeded in 45 seconds"
+    # Human-readable summary of execution

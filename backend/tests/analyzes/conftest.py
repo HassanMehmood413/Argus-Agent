@@ -11,10 +11,14 @@ from typing import Dict, Any, List
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
+from backend.config.settings import Settings
 
+settings = Settings()
 
-# Test collection name (separate from production)
-TEST_COLLECTION = "devops_incidents_test"
+OPENAI_API_KEY = settings.OPENAI_API_KEY
+QDRANT_URL = settings.QDRANT_URL
+QDRANT_API_KEY = settings.QDRANT_API_KEY
+TEST_COLLECTION = settings.QDRANT_COLLECTION
 
 
 @pytest.fixture(scope="session")
@@ -22,7 +26,7 @@ def check_api_keys():
     """
     Verify required API keys are set.
     """
-    openai_key = os.getenv("OPENAI_API_KEY")
+    openai_key = OPENAI_API_KEY
     if not openai_key:
         pytest.skip("OPENAI_API_KEY environment variable not set")
 
@@ -34,7 +38,7 @@ def check_qdrant():
     """
     Verify Qdrant is accessible.
     """
-    qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_url = QDRANT_URL
     try:
         client = QdrantClient(url=qdrant_url)
         client.get_collections()
@@ -241,7 +245,7 @@ def clean_test_collection(check_qdrant):
     """
     Clean up test collection before and after tests.
     """
-    qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_url = QDRANT_URL
     client = QdrantClient(url=qdrant_url)
 
     # Delete test collection if exists

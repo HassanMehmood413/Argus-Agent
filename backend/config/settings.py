@@ -4,14 +4,21 @@ Application Settings
 Centralized configuration using Pydantic Settings for environment variable management.
 """
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from typing import Optional
+import json
 
 
 class Settings(BaseSettings):
     """
     Application settings loaded from environment variables.
     """
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # OpenAI Configuration
     OPENAI_API_KEY: Optional[str] = None
@@ -32,12 +39,37 @@ class Settings(BaseSettings):
 
     # Approval Thresholds
     CONFIDENCE_THRESHOLD: float = 0.7
-    AUTO_APPROVE_RISK_LEVELS: list[str] = ["none", "low"]
+    AUTO_APPROVE_RISK_LEVELS_RAW: Optional[str] = Field(
+        default=None, validation_alias="AUTO_APPROVE_RISK_LEVELS"
+    )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    # Slack Configuration (for Approval workflow)
+    SLACK_BOT_TOKEN: Optional[str] = None  # xoxb-... token
+    SLACK_SIGNING_SECRET: Optional[str] = None  # For webhook verification
+    SLACK_DEFAULT_CHANNEL: str = "#incidents"
+    SLACK_APPROVAL_TIMEOUT_HOURS: int = 24  # How long to wait for approval
+
+    # Execution Configuration
+    DEPLOYMENT_TOOL: str = "kubectl"  # Options: kubectl, helm, argocd
+    EXECUTION_DRY_RUN: bool = False  # If True, simulate actions only
+    EXECUTION_STOP_ON_FAILURE: bool = True  # Stop if any action fails
+    EXECUTION_TIMEOUT_SECONDS: int = 300  # Timeout per action (5 min)
+    EXECUTION_MAX_RETRIES: int = 3  # Max retry attempts
+    EXECUTION_RETRY_DELAY: float = 1.0  # Initial retry delay in seconds
+    EXECUTION_RETRY_BACKOFF: float = 2.0  # Backoff multiplier
+
+    # Kubernetes Configuration
+    K8S_IN_CLUSTER: bool = False  # True if running inside Kubernetes
+
+    @property
+    def AUTO_APPROVE_RISK_LEVELS(self) -> list[str]:
+        """Parse risk levels from env or use default."""
+        if self.AUTO_APPROVE_RISK_LEVELS_RAW is None:
+            return ["none", "low"]
+        v = self.AUTO_APPROVE_RISK_LEVELS_RAW.strip().strip('"').strip("'")
+        if v.startswith("["):
+            return json.loads(v)
+        return [x.strip().strip('"').strip("'") for x in v.split(",")]
 
 
 # Global settings instance
