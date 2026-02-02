@@ -9,6 +9,7 @@ from backend.modules.monitors.graph import monitor_subgraph
 from backend.modules.analyzes.graph import analyzer_subgraph
 from backend.modules.approval.graph import approval_subgraph
 from backend.modules.execution.graph import executor_subgraph
+from backend.modules.summary.graph import summary_subgraph
 
 
 logger = logging.getLogger(__name__)
@@ -407,7 +408,6 @@ async def run_summary_node(state: OrchestratorState) -> Dict[str, Any]:
     Returns:
         Dict with summary output fields
     """
-    from backend.modules.summary.graph import summary_subgraph
 
     incident_id = state.get("incident_id", "unknown")
 

@@ -1,41 +1,3 @@
-"""
-LangGraph Checkpointer Configuration
-
-This module provides the PostgreSQL-based checkpointer for LangGraph.
-
-WHY POSTGRESQL CHECKPOINTER?
-============================
-1. **Persistence**: State survives server restarts
-2. **Scalability**: Works across multiple server instances
-3. **Reliability**: ACID guarantees for state transitions
-4. **interrupt() Support**: Required for human-in-the-loop workflows
-
-HOW IT WORKS:
-=============
-- LangGraph saves graph state after each node execution
-- Uses `thread_id` to identify each conversation/incident
-- When interrupt() is called, state is saved and can be resumed later
-- Resume happens by calling graph.invoke(Command(resume=...), config)
-
-USAGE:
-======
-```python
-from backend.modules.orchestrator.checkpointer import get_checkpointer
-
-# Get the checkpointer
-checkpointer = get_checkpointer()
-
-# Compile your graph with it
-compiled_graph = my_graph.compile(checkpointer=checkpointer)
-
-# Invoke with thread_id
-result = compiled_graph.invoke(
-    {"input": "data"},
-    config={"configurable": {"thread_id": "unique-id"}}
-)
-```
-"""
-
 import logging
 from functools import lru_cache
 from typing import Optional, TYPE_CHECKING
@@ -87,7 +49,6 @@ async def get_async_checkpointer() -> "AsyncPostgresSaver":
         AsyncPostgresSaver instance (already setup)
     """
     # Lazy import to avoid issues when postgres dependencies aren't installed
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
     settings = get_settings()
 

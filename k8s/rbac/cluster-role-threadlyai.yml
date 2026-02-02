@@ -1,0 +1,81 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# ClusterRole: Allows agent to access ThreadlyAI namespace
+# ═══════════════════════════════════════════════════════════════════════════════
+# This role grants the agent permissions to:
+# - READ: pods, logs, events, deployments (for monitoring/analysis)
+# - WRITE: restart pods, scale deployments, rollback (for remediation)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argus-agent-cluster-role
+rules:
+  # ============================================
+  # READ OPERATIONS (monitor, analyzer modules)
+  # ============================================
+
+  # Read pods and logs
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  # Read events (for incident context)
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+  # Read services/endpoints
+  - apiGroups: [""]
+    resources: ["services", "endpoints"]
+    verbs: ["get", "list"]
+
+  # Read deployments, replicasets, statefulsets
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+
+  # Read configmaps (for app config context)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+
+  # ============================================
+  # WRITE OPERATIONS (executor module)
+  # ============================================
+
+  # Delete pods (to trigger restart)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
+
+  # Scale deployments
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch", "update"]
+
+  # Patch deployments (for rollback)
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["patch", "update"]
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# ClusterRoleBinding: Binds the ClusterRole to agent's ServiceAccount
+# ═══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argus-agent-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argus-agent-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: argus-agent-service-account
+    namespace: argus-agent-prod

@@ -21,6 +21,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # Database Configuration
+    DATABASE_URL: str = "postgresql+asyncpg://user:password@db/dbname"
+
+    # Redis Configuration
+    REDIS_URL: str = "redis://redis:6379/0"
+    REDIS_HOST: str = "redis"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_PASSWORD: str = ""
+
     # OpenAI Configuration
     OPENAI_API_KEY: Optional[str] = None
     MODEL: str = "gpt-4o"
