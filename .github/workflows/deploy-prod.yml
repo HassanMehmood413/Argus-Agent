@@ -1,151 +1,152 @@
-# ═══════════════════════════════════════════════════════════════════════════════
-# Deploy to PRODUCTION - Requires manual approval
-# ═══════════════════════════════════════════════════════════════════════════════
+# # ═══════════════════════════════════════════════════════════════════════════════
+# # Deploy to PRODUCTION - Requires manual approval
+# # ═══════════════════════════════════════════════════════════════════════════════
 
-name: Deploy to Production
+# name: Deploy to Production
 
-on:
-  push:
-    branches: [main]
+# on:
+#   push:
+#     branches: [main]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/argus-agent
-  NAMESPACE: argus-agent-prod
+# env:
+#   REGISTRY: ghcr.io
+#   IMAGE_NAME: ${{ github.repository }}/argus-agent
+#   NAMESPACE: argus-agent-prod
 
-jobs:
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Build and Push Production Image
-  # ─────────────────────────────────────────────────────────────────────────────
-  build:
-    name: Build Production Image
-    runs-on: ubuntu-latest
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
+# jobs:
+#   # ─────────────────────────────────────────────────────────────────────────────
+#   # Build and Push Production Image
+#   # ─────────────────────────────────────────────────────────────────────────────
+#   build:
+#     name: Build Production Image
+#     runs-on: ubuntu-latest
+#     outputs:
+#       image_tag: ${{ steps.meta.outputs.tags }}
 
-    steps:
-      - uses: actions/checkout@v4
+#     steps:
+#       - uses: actions/checkout@v4
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+#       - name: Log in to Container Registry
+#         uses: docker/login-action@v3
+#         with:
+#           registry: ${{ env.REGISTRY }}
+#           username: ${{ github.actor }}
+#           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=prod-
-            type=raw,value=latest
-            type=raw,value=prod
+#       - name: Extract metadata
+#         id: meta
+#         uses: docker/metadata-action@v5
+#         with:
+#           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+#           tags: |
+#             type=sha,prefix=prod-
+#             type=raw,value=latest
+#             type=raw,value=prod
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+#       - name: Build and push Docker image
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: ./backend
+#           push: true
+#           tags: ${{ steps.meta.outputs.tags }}
+#           labels: ${{ steps.meta.outputs.labels }}
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Deploy to Production (Requires Manual Approval)
-  # ─────────────────────────────────────────────────────────────────────────────
-  deploy-prod:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: build
+#   # ─────────────────────────────────────────────────────────────────────────────
+#   # Deploy to Production (Requires Manual Approval)
+#   # ─────────────────────────────────────────────────────────────────────────────
+#   deploy-prod:
+#     name: Deploy to Production
+#     runs-on: ubuntu-latest
+#     needs: build
 
-    # ⚠️ This environment MUST be configured in GitHub with required reviewers
-    # Go to: Settings → Environments → production → Required reviewers
-    environment:
-      name: production
-      url: https://your-prod-url.com
+#     # ⚠️ This environment MUST be configured in GitHub with required reviewers
+#     # Go to: Settings → Environments → production → Required reviewers
+#     environment:
+#       name: production
+#       url: https://your-prod-url.com
 
-    steps:
-      - uses: actions/checkout@v4
+#     steps:
+#       - uses: actions/checkout@v4
 
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
+#       - name: Set up kubectl
+#         uses: azure/setup-kubectl@v3
 
-      - name: Configure kubectl
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > kubeconfig
-          echo "KUBECONFIG=$(pwd)/kubeconfig" >> $GITHUB_ENV
+#       - name: Configure kubectl
+#         run: |
+#           echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > kubeconfig
+#           echo "KUBECONFIG=$(pwd)/kubeconfig" >> $GITHUB_ENV
 
-      # ─────────────────────────────────────────────────────────────────────────
-      # Pre-deployment checks
-      # ─────────────────────────────────────────────────────────────────────────
-      - name: Pre-deployment health check
-        run: |
-          echo "Checking current production status..."
-          kubectl get pods -n ${{ env.NAMESPACE }}
-          kubectl get deployment argus-agent-deployment -n ${{ env.NAMESPACE }} -o yaml | head -50
+#       # ─────────────────────────────────────────────────────────────────────────
+#       # Pre-deployment checks
+#       # ─────────────────────────────────────────────────────────────────────────
+#       - name: Pre-deployment health check
+#         run: |
+#           echo "Checking current production status..."
+#           kubectl get pods -n ${{ env.NAMESPACE }}
+#           kubectl get deployment argus-agent-deployment -n ${{ env.NAMESPACE }} -o yaml | head -50
 
-      # ─────────────────────────────────────────────────────────────────────────
-      # Deploy with rollback capability
-      # ─────────────────────────────────────────────────────────────────────────
-      - name: Deploy to Production
-        run: |
-          # Record the deployment for rollback
-          kubectl annotate deployment/argus-agent-deployment \
-            kubernetes.io/change-cause="Deploy ${{ github.sha }} by ${{ github.actor }}" \
-            -n ${{ env.NAMESPACE }} --overwrite || true
+#       # ─────────────────────────────────────────────────────────────────────────
+#       # Deploy with rollback capability
+#       # ─────────────────────────────────────────────────────────────────────────
+#       - name: Deploy to Production
+#         run: |
+#           # Record the deployment for rollback
+#           kubectl annotate deployment/argus-agent-deployment \
+#             kubernetes.io/change-cause="Deploy ${{ github.sha }} by ${{ github.actor }}" \
+#             -n ${{ env.NAMESPACE }} --overwrite || true
 
-          # Update image
-          kubectl set image deployment/argus-agent-deployment \
-            argus-agent=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }} \
-            -n ${{ env.NAMESPACE }}
+#           # Update image
+#           kubectl set image deployment/argus-agent-deployment \
+#             argus-agent=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }} \
+#             -n ${{ env.NAMESPACE }}
 
-          # Wait for rollout with timeout
-          kubectl rollout status deployment/argus-agent-deployment \
-            -n ${{ env.NAMESPACE }} \
-            --timeout=600s
+#           # Wait for rollout with timeout
+#           kubectl rollout status deployment/argus-agent-deployment \
+#             -n ${{ env.NAMESPACE }} \
+#             --timeout=600s
 
-      # ─────────────────────────────────────────────────────────────────────────
-      # Post-deployment verification
-      # ─────────────────────────────────────────────────────────────────────────
-      - name: Verify deployment
-        run: |
-          echo "Verifying production deployment..."
+#       # ─────────────────────────────────────────────────────────────────────────
+#       # Post-deployment verification
+#       # ─────────────────────────────────────────────────────────────────────────
+#       - name: Verify deployment
+#         run: |
+#           echo "Verifying production deployment..."
 
-          # Check pods are running
-          kubectl get pods -n ${{ env.NAMESPACE }} -l app=argus-agent
+#           # Check pods are running
+#           kubectl get pods -n ${{ env.NAMESPACE }} -l app=argus-agent
 
-          # Check health endpoint
-          # kubectl run curl --image=curlimages/curl --rm -it --restart=Never -- \
-          #   curl -f http://argus-agent-service:8000/health || exit 1
+#           # Check health endpoint
+#           # kubectl run curl --image=curlimages/curl --rm -it --restart=Never -- \
+#           #   curl -f http://argus-agent-service:8000/health || exit 1
 
-      # ─────────────────────────────────────────────────────────────────────────
-      # Rollback on failure
-      # ─────────────────────────────────────────────────────────────────────────
-      - name: Rollback on failure
-        if: failure()
-        run: |
-          echo "⚠️ Deployment failed! Rolling back..."
-          kubectl rollout undo deployment/argus-agent-deployment -n ${{ env.NAMESPACE }}
-          kubectl rollout status deployment/argus-agent-deployment -n ${{ env.NAMESPACE }}
+#       # ─────────────────────────────────────────────────────────────────────────
+#       # Rollback on failure
+#       # ─────────────────────────────────────────────────────────────────────────
+#       - name: Rollback on failure
+#         if: failure()
+#         run: |
+#           echo "⚠️ Deployment failed! Rolling back..."
+#           kubectl rollout undo deployment/argus-agent-deployment -n ${{ env.NAMESPACE }}
+#           kubectl rollout status deployment/argus-agent-deployment -n ${{ env.NAMESPACE }}
 
-      # ─────────────────────────────────────────────────────────────────────────
-      # Notifications
-      # ─────────────────────────────────────────────────────────────────────────
-      - name: Notify Slack (Success)
-        if: success()
-        run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-            -H 'Content-type: application/json' \
-            -d '{
-              "text": "🚀 *PRODUCTION Deployment Successful*\nCommit: ${{ github.sha }}\nDeployed by: ${{ github.actor }}\n\n✅ All systems operational"
-            }' || true
+#       # ─────────────────────────────────────────────────────────────────────────
+#       # Notifications
+#       # ─────────────────────────────────────────────────────────────────────────
+#       - name: Notify Slack (Success)
+#         if: success()
+#         run: |
+#           curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+#             -H 'Content-type: application/json' \
+#             -d '{
+#               "text": "🚀 *PRODUCTION Deployment Successful*\nCommit: ${{ github.sha }}\nDeployed by: ${{ github.actor }}\n\n✅ All systems operational"
+#             }' || true
 
-      - name: Notify Slack (Failure)
-        if: failure()
-        run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-            -H 'Content-type: application/json' \
-            -d '{
-              "text": "🔴 *PRODUCTION Deployment FAILED*\nCommit: ${{ github.sha }}\nAttempted by: ${{ github.actor }}\n\n⚠️ Automatic rollback initiated"
-            }' || true
+#       - name: Notify Slack (Failure)
+#         if: failure()
+#         run: |
+#           curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+#             -H 'Content-type: application/json' \
+#             -d '{
+#               "text": "🔴 *PRODUCTION Deployment FAILED*\nCommit: ${{ github.sha }}\nAttempted by: ${{ github.actor }}\n\n⚠️ Automatic rollback initiated"
+#             }' || true
+# #
