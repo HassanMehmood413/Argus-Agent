@@ -1,0 +1,51 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: argus-agent-deployment
+  namespace: argus-agent-prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argus-agent
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: argus-agent
+    spec:
+      serviceAccountName: argus-agent-service-account
+      containers:
+        - name: argus-agent
+          image: hm413/argus-agent:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: argus-agent-config
+            - secretRef:
+                name: argus-agent-secrets
+          resources:
+            limits:
+              cpu: 1
+              memory: 1G
+            requests:
+              cpu: 0.5
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3

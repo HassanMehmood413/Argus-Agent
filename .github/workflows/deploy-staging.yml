@@ -1,0 +1,92 @@
+# # ═══════════════════════════════════════════════════════════════════════════════
+# # Deploy to STAGING - Auto-deploys when code is merged to staging
+# # ═══════════════════════════════════════════════════════════════════════════════
+
+# name: Deploy to Staging
+
+# on:
+#   push:
+#     branches: [staging]
+
+# env:
+#   REGISTRY: ghcr.io
+#   IMAGE_NAME: ${{ github.repository }}/argus-agent
+#   NAMESPACE: argus-agent-staging
+
+# jobs:
+#   deploy-staging:
+#     name: Deploy to Staging Environment
+#     runs-on: ubuntu-latest
+#     environment: staging  # GitHub environment - can require reviewers here
+
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       # ─────────────────────────────────────────────────────────────────────────
+#       # Build and Push Docker Image
+#       # ─────────────────────────────────────────────────────────────────────────
+#       - name: Log in to Container Registry
+#         uses: docker/login-action@v3
+#         with:
+#           registry: ${{ env.REGISTRY }}
+#           username: ${{ github.actor }}
+#           password: ${{ secrets.GITHUB_TOKEN }}
+
+#       - name: Build and push Docker image
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: ./backend
+#           push: true
+#           tags: |
+#             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging
+#             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }}
+
+#       # ─────────────────────────────────────────────────────────────────────────
+#       # Deploy to Kubernetes (Staging)
+#       # ─────────────────────────────────────────────────────────────────────────
+#       - name: Set up kubectl
+#         uses: azure/setup-kubectl@v3
+
+#       - name: Configure kubectl
+#         run: |
+#           echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > kubeconfig
+#           echo "KUBECONFIG=$(pwd)/kubeconfig" >> $GITHUB_ENV
+
+#       - name: Deploy to Staging
+#         run: |
+#           # Apply any manifest changes first
+#           kubectl apply -f k8s/namespace/agent_staging.yml
+#           kubectl apply -f k8s/backend/agent/ -n ${{ env.NAMESPACE }} || true
+
+#           # Update image
+#           kubectl set image deployment/argus-agent-deployment \
+#             argus-agent=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }} \
+#             -n ${{ env.NAMESPACE }}
+
+#           # Wait for rollout
+#           kubectl rollout status deployment/argus-agent-deployment \
+#             -n ${{ env.NAMESPACE }} \
+#             --timeout=300s
+
+#       # ─────────────────────────────────────────────────────────────────────────
+#       # Run Smoke Tests
+#       # ─────────────────────────────────────────────────────────────────────────
+#       - name: Run Smoke Tests
+#         run: |
+#           # Wait for service to be ready
+#           sleep 30
+
+#           # Get service URL (internal)
+#           # For external, you'd use ingress URL
+#           echo "Running smoke tests against staging..."
+#           # Add your smoke test commands here
+#           # curl -f http://staging-url/health || exit 1
+
+#       - name: Notify Slack (Staging Deployed)
+#         if: success()
+#         run: |
+#           curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+#             -H 'Content-type: application/json' \
+#             -d '{
+#               "text": "🟡 *Staging Deployment Successful*\nBranch: staging\nCommit: ${{ github.sha }}\nBy: ${{ github.actor }}\n\n_Ready for QA testing_"
+#             }' || true
