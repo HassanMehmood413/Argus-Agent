@@ -72,15 +72,16 @@ async def run_monitor_node(state: OrchestratorState) -> Dict[str, Any]:
     """
 
     incident_id = state.get("incident_id", "unknown")
-    alert = state.get("alert", {})
+    alert = state.get("alert") or {}
+    labels = alert.get("labels") or {}
 
     logger.info(f"[Orchestrator] Running Monitor subgraph for {incident_id}")
 
     # Map orchestrator state to monitor input
     monitor_input = {
-        "service": alert.get("service", alert.get("labels", {}).get("service", "unknown")),
-        "namespace": alert.get("namespace", alert.get("labels", {}).get("namespace", "default")),
-        "alert_labels": alert.get("labels", {}),
+        "service": alert.get("service") or labels.get("service", "unknown"),
+        "namespace": alert.get("namespace") or labels.get("namespace", "default"),
+        "alert_labels": labels,
         "time_range": "15m",
     }
 

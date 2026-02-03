@@ -1,0 +1,74 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Deploy to DEV - Auto-deploys when code is merged to develop
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Deploy to Dev
+
+on:
+  push:
+    branches: [develop]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/argus-agent
+  NAMESPACE: argus-agent-dev
+
+jobs:
+  deploy-dev:
+    name: Deploy to Dev Environment
+    runs-on: ubuntu-latest
+    environment: development  # GitHub environment (optional, for secrets)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # Build and Push Docker Image
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }}
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # Deploy to Kubernetes (Dev)
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubectl
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_DEV }}" | base64 -d > kubeconfig
+          echo "KUBECONFIG=$(pwd)/kubeconfig" >> $GITHUB_ENV
+
+      - name: Deploy to Dev
+        run: |
+          # Update image in deployment
+          kubectl set image deployment/argus-agent-deployment \
+            argus-agent=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.sha }} \
+            -n ${{ env.NAMESPACE }}
+
+          # Wait for rollout
+          kubectl rollout status deployment/argus-agent-deployment \
+            -n ${{ env.NAMESPACE }} \
+            --timeout=300s
+
+      - name: Notify Slack (Dev Deployed)
+        if: success()
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+            -H 'Content-type: application/json' \
+            -d '{
+              "text": "✅ *Dev Deployment Successful*\nBranch: develop\nCommit: ${{ github.sha }}\nBy: ${{ github.actor }}"
+            }' || true

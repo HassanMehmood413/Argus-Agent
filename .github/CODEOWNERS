@@ -1,0 +1,22 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# CODEOWNERS - Defines who must approve PRs for different parts of the codebase
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Default owners for everything (fallback)
+* @your-org/backend-team
+
+# Kubernetes manifests - require DevOps approval
+/k8s/ @your-org/devops-team
+
+# Production manifests - require Lead + DevOps
+/k8s/namespace/agent_prod.yml @your-org/leads @your-org/devops-team
+/k8s/backend/agent/ @your-org/leads @your-org/devops-team
+
+# Secrets - require DevOps only
+/k8s/**/secrets.yml @your-org/devops-team
+
+# CI/CD workflows - require DevOps
+/.github/workflows/ @your-org/devops-team
+
+# Backend code - backend team can approve
+/backend/ @your-org/backend-team

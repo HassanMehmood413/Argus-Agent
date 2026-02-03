@@ -5,6 +5,7 @@ metadata:
   namespace: argus-agent-prod
 spec:
   scaleTargetRef:
+    apiVersion: apps/v1
     kind: Deployment
     name: argus-agent-deployment
   minReplicas: 1
@@ -25,7 +26,6 @@ spec:
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300
-      selectPolicy: Max
       policies:
         - type: Percent
           value: 25

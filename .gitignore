@@ -1,0 +1,46 @@
+# IDE & Editor
+.claude
+.cursor
+.vscode
+.idea
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Misc
+txt.json
+*.log
+
+# ===========================================
+# Kubernetes Secrets - NEVER commit these!
+# ===========================================
+# Pattern-based (catches all secrets/sensitive configs)
+**/secrets.yml
+**/secrets.yaml
+**/secret.yml
+**/secret.yaml
+**/*-secret.yml
+**/*-secret.yaml
+**/*-secrets.yml
+**/*-secrets.yaml
+
+# ConfigMaps with sensitive data
+**/configMapRef.yml
+**/configMapRef.yaml
+
+# Specific paths (explicit)
+k8s/backend/agent/secrets.yml
+k8s/backend/agent/configMapRef.yml
+k8s/backend/db/postgres-secret.yml

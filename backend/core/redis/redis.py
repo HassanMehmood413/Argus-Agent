@@ -1,5 +1,5 @@
 import redis
-from backend.core.config import get_settings
+from backend.config.settings import get_settings
 from fastapi import Depends
 from typing import Annotated
 

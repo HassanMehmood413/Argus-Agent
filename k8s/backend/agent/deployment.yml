@@ -21,7 +21,7 @@ spec:
       serviceAccountName: argus-agent-service-account
       containers:
         - name: argus-agent
-          image: argus-agent:latest
+          image: hm413/argus-agent:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8000

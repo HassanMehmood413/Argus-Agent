@@ -4,7 +4,7 @@ from typing import Optional, TYPE_CHECKING
 
 from langgraph.checkpoint.memory import MemorySaver
 
-from backend.core.config import get_settings
+from backend.config.settings import get_settings
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
