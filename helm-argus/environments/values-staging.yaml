@@ -1,0 +1,184 @@
+# ================================================================
+# STAGING ENVIRONMENT CONFIGURATION
+# ================================================================
+# Use this for: QA testing before production
+# Goal: Test production-like setup, catch bugs before prod
+# ================================================================
+
+# ----------------------------------------------------------------
+# Argus Agent Configuration
+# ----------------------------------------------------------------
+argus:
+  namespace: staging-argus
+
+  # 2 replicas to test high availability
+  replicaCount: 2
+
+  # Docker image from shared registry
+  image:
+    repository: myregistry/argus-agent  # CHANGE THIS to your registry
+    tag: "1.0.0-rc1"                     # Release candidate version
+    pullPolicy: IfNotPresent              # Pull only if not cached
+
+  # Medium resources (between dev and prod)
+  resources:
+    limits:
+      cpu: 1000m         # Max 1 CPU core
+      memory: 1Gi        # Max 1 GB RAM
+    requests:
+      cpu: 500m          # Reserve 0.5 CPU cores
+      memory: 512Mi      # Reserve 512 MB RAM
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 30
+
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 10
+
+  ai:
+    model: "gpt-4o"
+    embeddingModel: "text-embedding-3-small"
+
+  qdrant:
+    url: "http://qdrant:6333"
+    apiKey: ""
+    collection: "devops_incidents_staging"
+
+  slack:
+    defaultChannel: "#incidents-staging"
+    approvalTimeoutHours: 24
+
+  jira:
+    enabled: true  # Test Jira integration in staging
+    url: "https://yourcompany.atlassian.net"
+    email: "staging@company.com"
+    projectKey: "STAGE"
+    issueType: "Task"
+
+  execution:
+    deploymentTool: "kubectl"
+    dryRun: false   # Execute actions (but in staging namespace)
+    stopOnFailure: true
+    timeoutSeconds: 300
+    maxRetries: 3
+
+  approval:
+    confidenceThreshold: 0.7  # Same as production
+    autoApproveRiskLevels: "none,low"
+
+  secrets:
+    openaiApiKey: ""
+    slackBotToken: ""
+    slackSigningSecret: ""
+    jiraApiToken: ""
+
+# ----------------------------------------------------------------
+# PostgreSQL Configuration (using Bitnami chart)
+# ----------------------------------------------------------------
+postgresql:
+  enabled: true
+
+  auth:
+    username: argus
+    database: argus_staging
+    password: ""  # Will be set via --set (more secure)
+
+  primary:
+    # Enable persistence for staging (test backup/restore)
+    persistence:
+      enabled: true
+      size: 5Gi  # Smaller than prod
+      storageClass: ""  # Use default
+
+    # Medium resources
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 512Mi
+      requests:
+        cpu: 500m
+        memory: 256Mi
+
+  # Enable monitoring to test Prometheus integration
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false  # Enable if using Prometheus Operator
+
+# ----------------------------------------------------------------
+# Redis Configuration (using Bitnami chart)
+# ----------------------------------------------------------------
+redis:
+  enabled: true
+
+  architecture: standalone
+
+  # Enable auth for staging (test security)
+  auth:
+    enabled: true
+    password: ""  # Will be set via --set
+
+  master:
+    # Enable persistence
+    persistence:
+      enabled: true
+      size: 2Gi
+      storageClass: ""
+
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 250m
+        memory: 128Mi
+
+  # Enable monitoring
+  metrics:
+    enabled: true
+
+# ----------------------------------------------------------------
+# Monitoring Configuration
+# ----------------------------------------------------------------
+monitoring:
+  prometheus:
+    enabled: true
+    url: "http://prometheus-kube-prometheus-prometheus.monitoring:9090"
+
+  loki:
+    enabled: true
+    url: "http://loki.monitoring:3100"
+
+# ----------------------------------------------------------------
+# Autoscaling (test in staging)
+# ----------------------------------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+# ----------------------------------------------------------------
+# Security Context (production-like)
+# ----------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false

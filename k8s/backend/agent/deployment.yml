@@ -22,7 +22,7 @@ spec:
       containers:
         - name: argus-agent
           image: hm413/argus-agent:latest
-          imagePullPolicy: Always
+          imagePullPolicy: Never
           ports:
             - containerPort: 8000
           envFrom:

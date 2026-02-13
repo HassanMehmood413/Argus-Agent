@@ -35,9 +35,6 @@ def build_orchestrator_graph() -> StateGraph:
     """
     graph = StateGraph(OrchestratorState)
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # ADD NODES
-    # ═══════════════════════════════════════════════════════════════════════
 
     # Entry point - initialize incident
     graph.add_node("receive_alert", receive_alert_node)
@@ -60,10 +57,6 @@ def build_orchestrator_graph() -> StateGraph:
 
     # Summary
     graph.add_node("run_summary", run_summary_node)
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # ADD EDGES
-    # ═══════════════════════════════════════════════════════════════════════
 
     # START -> receive_alert -> run_monitor -> run_analyzer
     graph.add_edge(START, "receive_alert")

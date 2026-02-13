@@ -363,13 +363,31 @@ def _format_actions_summary(execution_results: list) -> str:
 
     lines = []
     for i, result in enumerate(execution_results, 1):
-        action_type = result.get("action", {}).get("type", "unknown")
+        # Handle case where result might be a string or malformed
+        if isinstance(result, str):
+            lines.append(f"  {i}. {result}")
+            continue
+
+        if not isinstance(result, dict):
+            lines.append(f"  {i}. Action {i}")
+            continue
+
+        # Extract action info safely - handle both formats:
+        # Format 1: {"action": {"type": "...", "description": "..."}, "success": bool}
+        # Format 2: {"action_type": "...", "success": bool, "output": "..."}
+        action = result.get("action")
+        if isinstance(action, dict):
+            action_type = action.get("type", "unknown")
+            description = action.get("description", "No description")
+        else:
+            # Direct fields format
+            action_type = result.get("action_type", result.get("type", "unknown"))
+            description = result.get("output", result.get("description", "No description"))
+
         success = result.get("success", False)
         status_emoji = "✅" if success else "❌"
 
-        description = result.get("action", {}).get("description", "No description")
-
-        lines.append(f"  {i}. {status_emoji} {action_type}: {description}")
+        lines.append(f"  {i}. {status_emoji} {action_type}: {description[:100]}")
 
         # Add error message if failed
         if not success and result.get("error"):

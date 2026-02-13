@@ -1,7 +1,7 @@
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: argus-agent-senior-cluster-role
+  name: argus-senior-cluster-role
 rules:
   - apiGroups: [""]
     resources: ["pods"]

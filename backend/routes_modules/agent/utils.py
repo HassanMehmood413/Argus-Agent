@@ -6,7 +6,7 @@ import logging
 from fastapi import HTTPException, Request
 from backend.config.settings import settings
 from langgraph.types import Command
-from backend.modules.approval.graph import approval_subgraph
+from backend.modules.orchestrator.graph import orchestrator_graph
 from backend.modules.execution.graph import executor_subgraph
 from backend.modules.orchestrator import process_incident
 
@@ -116,10 +116,15 @@ async def handle_button_click(payload: dict) -> dict:
     Returns:
         Response dict
     """
+    print("=" * 60)
+    print("[SLACK WEBHOOK] Button click received!")
+    print("=" * 60)
+
     # Extract action details
     actions = payload.get("actions", [])
     if not actions:
         logger.warning("[Webhook] No actions in payload")
+        print("[SLACK WEBHOOK] WARNING: No actions in payload")
         return {"ok": True}
 
     action = actions[0]
@@ -131,9 +136,21 @@ async def handle_button_click(payload: dict) -> dict:
     user_id = user.get("id", "unknown")
     user_name = user.get("name") or user.get("username", "Unknown")
 
+    # Extract channel and message info from Slack payload
+    # This is needed to update the original approval message
+    container = payload.get("container", {})
+    slack_channel_id = container.get("channel_id") or payload.get("channel", {}).get("id")
+    slack_message_ts = container.get("message_ts")
+
+    print(f"[SLACK WEBHOOK] Action ID: {action_id}")
+    print(f"[SLACK WEBHOOK] Incident ID: {incident_id}")
+    print(f"[SLACK WEBHOOK] User: {user_name} ({user_id})")
+    print(f"[SLACK WEBHOOK] Channel ID: {slack_channel_id}")
+    print(f"[SLACK WEBHOOK] Message TS: {slack_message_ts}")
+
     logger.info(
         f"[Webhook] Button click: action={action_id}, "
-        f"incident={incident_id}, user={user_name}"
+        f"incident={incident_id}, user={user_name}, channel={slack_channel_id}"
     )
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -144,6 +161,8 @@ async def handle_button_click(payload: dict) -> dict:
             "approved": True,
             "approved_by": user_id,
             "approved_by_name": user_name,
+            "slack_channel_id": slack_channel_id,
+            "slack_message_ts": slack_message_ts,
         }
         try:
             await resume_approval_graph(incident_id, decision)
@@ -157,6 +176,8 @@ async def handle_button_click(payload: dict) -> dict:
             "approved_by": user_id,
             "approved_by_name": user_name,
             "rejection_reason": "Rejected via Slack button",
+            "slack_channel_id": slack_channel_id,
+            "slack_message_ts": slack_message_ts,
         }
         try:
             await resume_approval_graph(incident_id, decision)
@@ -170,6 +191,8 @@ async def handle_button_click(payload: dict) -> dict:
             "approved_by": user_id,
             "approved_by_name": user_name,
             "approval_notes": "Actions may need modification",
+            "slack_channel_id": slack_channel_id,
+            "slack_message_ts": slack_message_ts,
         }
         try:
             await resume_approval_graph(incident_id, decision)
@@ -229,44 +252,51 @@ async def handle_modal_submission(payload: dict) -> dict:
 
 async def resume_approval_graph(incident_id: str, decision: dict) -> None:
     """
-    Resume the approval graph with the human's decision.
+    Resume the orchestrator graph with the human's approval decision.
 
     THIS IS THE KEY FUNCTION!
 
     It calls graph.invoke(Command(resume=decision)) which:
     1. Loads the checkpointed state for this incident
-    2. Resumes execution from the interrupt() call
+    2. Resumes execution from the interrupt() call in run_approval_node
     3. The decision becomes the return value of interrupt()
-    4. The graph continues to process_decision_node
+    4. The orchestrator continues to execution or rejection handling
     5. State is saved with the final outcome
 
     Args:
         incident_id: The incident ID (used as thread_id)
         decision: The decision dict with approved, approved_by, etc.
     """
+    print("=" * 60)
+    print(f"[RESUME] Resuming orchestrator for incident: {incident_id}")
+    print(f"[RESUME] Decision: approved={decision.get('approved')}")
+    print(f"[RESUME] Approved by: {decision.get('approved_by_name', decision.get('approved_by'))}")
+    print("=" * 60)
+
     logger.info(
-        f"[Webhook] Resuming approval graph for {incident_id} "
+        f"[Webhook] Resuming orchestrator graph for {incident_id} "
         f"with decision: approved={decision.get('approved')}"
     )
 
     # The config must have the same thread_id as when the graph was started
     config = {"configurable": {"thread_id": incident_id}}
 
+    print(f"[RESUME] Using config: {config}")
     logger.info(f"[Webhook] Using config: {config}")
 
     # Create the resume command
     # This is what "wakes up" the paused graph
     resume_command = Command(resume=decision)
 
+    print(f"[RESUME] Created Command(resume={decision})")
     logger.info(f"[Webhook] Created Command(resume={decision})")
 
     try:
         # Check if there's a checkpointed state for this thread_id
-        # This helps debug if the graph was never started or used wrong thread_id
-        checkpointer = approval_subgraph.checkpointer
+        checkpointer = orchestrator_graph.checkpointer
         if checkpointer:
             try:
-                state = await approval_subgraph.aget_state(config)
+                state = await orchestrator_graph.aget_state(config)
                 if state and state.values:
                     logger.info(f"[Webhook] Found checkpointed state for {incident_id}")
                     logger.info(f"[Webhook] State keys: {list(state.values.keys())}")
@@ -274,19 +304,32 @@ async def resume_approval_graph(incident_id: str, decision: dict) -> None:
                 else:
                     logger.warning(f"[Webhook] NO checkpointed state found for {incident_id}!")
                     logger.warning("[Webhook] This means the graph was never started with this thread_id")
-                    logger.warning("[Webhook] Make sure you used /api/v1/test/approval/workflow to start the flow")
             except Exception as e:
                 logger.warning(f"[Webhook] Could not check state: {e}")
 
-        result = await approval_subgraph.ainvoke(resume_command, config)
+        # Resume the ORCHESTRATOR graph (not approval subgraph)
+        # The interrupt() is now in run_approval_node within the orchestrator
+        print(f"[RESUME] Calling orchestrator_graph.ainvoke(resume_command, config)...")
+        result = await orchestrator_graph.ainvoke(resume_command, config)
+
+        print("=" * 60)
+        print(f"[RESUME] SUCCESS! Orchestrator resumed for {incident_id}")
+        print(f"[RESUME] Final status: {result.get('status')}")
+        print(f"[RESUME] Approved: {result.get('approved')}")
+        print(f"[RESUME] Approved by: {result.get('approved_by')}")
+        print("=" * 60)
 
         logger.info(
-            f"[Webhook] Graph resumed successfully for {incident_id}. "
-            f"Final approved state: {result.get('approved')}"
+            f"[Webhook] Orchestrator resumed successfully for {incident_id}. "
+            f"Final status: {result.get('status')}, approved: {result.get('approved')}"
         )
 
     except Exception as e:
-        logger.error(f"[Webhook] Error resuming graph for {incident_id}: {e}")
+        print("=" * 60)
+        print(f"[RESUME] ERROR resuming orchestrator for {incident_id}")
+        print(f"[RESUME] Error: {e}")
+        print("=" * 60)
+        logger.error(f"[Webhook] Error resuming orchestrator for {incident_id}: {e}")
         import traceback
         logger.error(f"[Webhook] Traceback: {traceback.format_exc()}")
         raise

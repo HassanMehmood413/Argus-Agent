@@ -1,0 +1,184 @@
+# ================================================================
+# DEVELOPMENT ENVIRONMENT CONFIGURATION
+# ================================================================
+# Use this for: Local testing on Minikube or Docker Desktop
+# Goal: Fast deployment, minimal resources, no persistence
+# ================================================================
+
+# ----------------------------------------------------------------
+# Argus Agent Configuration
+# ----------------------------------------------------------------
+argus:
+  # Which namespace to deploy to
+  namespace: dev-argus
+
+  # How many copies of Argus to run (1 is enough for dev)
+  replicaCount: 1
+
+  # Docker image configuration
+  image:
+    repository: localhost:5000/argus-agent  # Local Docker registry
+    tag: latest                              # Always use latest for dev
+    pullPolicy: Always                       # Always pull latest image
+
+  # How much CPU and memory Argus can use (small for dev)
+  resources:
+    limits:
+      cpu: 500m          # Max 0.5 CPU cores
+      memory: 512Mi      # Max 512 MB RAM
+    requests:
+      cpu: 250m          # Reserve 0.25 CPU cores
+      memory: 256Mi      # Reserve 256 MB RAM
+
+  # Service type (how to access Argus)
+  service:
+    type: ClusterIP      # Only accessible inside cluster
+    port: 8000           # Port number
+
+  # Health checks (when to restart if unhealthy)
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 30
+
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 10
+
+  # AI configuration
+  ai:
+    model: "gpt-4o"
+    embeddingModel: "text-embedding-3-small"
+
+  # Qdrant vector database (optional)
+  qdrant:
+    url: "http://qdrant:6333"
+    apiKey: ""
+    collection: "devops_incidents"
+
+  # Slack integration
+  slack:
+    defaultChannel: "#incidents-dev"  # Separate dev channel
+    approvalTimeoutHours: 24
+
+  # Jira integration (disabled for dev)
+  jira:
+    enabled: false  # Don't create Jira tickets in dev
+
+  # Execution settings
+  execution:
+    deploymentTool: "kubectl"
+    dryRun: true    # IMPORTANT: Don't actually execute actions in dev
+    stopOnFailure: true
+    timeoutSeconds: 300
+    maxRetries: 3
+
+  # Approval settings
+  approval:
+    confidenceThreshold: 0.5  # Lower threshold for dev (easier to test)
+    autoApproveRiskLevels: "none,low,medium"  # Auto-approve more for dev
+
+  # Secrets (will be set via --set flag, not stored here)
+  secrets:
+    openaiApiKey: ""
+    slackBotToken: ""
+    slackSigningSecret: ""
+
+# ----------------------------------------------------------------
+# PostgreSQL Configuration (using Bitnami chart)
+# ----------------------------------------------------------------
+postgresql:
+  enabled: true
+
+  # Database credentials
+  auth:
+    username: argus
+    database: argus_dev
+    password: "dev-password"  # Simple password for dev (OK for local)
+
+  # PostgreSQL primary instance
+  primary:
+    # Storage settings
+    persistence:
+      enabled: false  # NO PERSISTENCE for dev (faster, data lost on restart)
+      # Why disabled: Faster startup, no PVC needed, data resets each time
+
+    # Resource limits (small for dev)
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 250m
+        memory: 128Mi
+
+  # Monitoring (disabled for dev)
+  metrics:
+    enabled: false
+
+# ----------------------------------------------------------------
+# Redis Configuration (using Bitnami chart)
+# ----------------------------------------------------------------
+redis:
+  enabled: true
+
+  # Architecture (standalone = single instance, no replication)
+  architecture: standalone
+
+  # Authentication (disabled for dev)
+  auth:
+    enabled: false  # No password for dev (easier testing)
+
+  # Redis master instance
+  master:
+    # Storage settings
+    persistence:
+      enabled: false  # NO PERSISTENCE for dev
+      # Why disabled: Faster startup, cache resets each time (OK for dev)
+
+    # Resource limits (small for dev)
+    resources:
+      limits:
+        cpu: 250m
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 64Mi
+
+  # Monitoring (disabled for dev)
+  metrics:
+    enabled: false
+
+# ----------------------------------------------------------------
+# Monitoring Configuration
+# ----------------------------------------------------------------
+monitoring:
+  prometheus:
+    enabled: true
+    url: "http://prometheus-kube-prometheus-prometheus.monitoring:9090"
+
+  loki:
+    enabled: false  # Disabled for dev (optional)
+
+# ----------------------------------------------------------------
+# Autoscaling (disabled for dev)
+# ----------------------------------------------------------------
+autoscaling:
+  enabled: false  # No auto-scaling in dev
+
+# ----------------------------------------------------------------
+# Security Context (less strict for dev)
+# ----------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: false  # Allow root for easier debugging in dev
+  runAsUser: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false

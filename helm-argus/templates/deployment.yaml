@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helm-argus.fullname" . }}-agent
+  namespace: {{ .Values.argus.namespace }}
+  labels:
+    {{- include "helm-argus.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  replicas: {{ .Values.argus.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "helm-argus.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets/agent-secrets.yaml") . | sha256sum }}
+      labels:
+        {{- include "helm-argus.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+    spec:
+      serviceAccountName: {{ include "helm-argus.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: argus-agent
+          image: "{{ .Values.argus.image.repository }}:{{ .Values.argus.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.argus.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.argus.service.port }}
+              protocol: TCP
+          env:
+            - name: K8S_IN_CLUSTER
+              value: "true"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helm-argus.fullname" . }}-agent-secrets
+                  key: database-url
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              value: "redis://{{ .Release.Name }}-redis-master:6379/0"
+            - name: REDIS_HOST
+              value: "{{ .Release.Name }}-redis-master"
+            - name: REDIS_PORT
+              value: "6379"
+            {{- end }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helm-argus.fullname" . }}-agent-secrets
+                  key: openai-api-key
+            - name: MODEL
+              value: {{ .Values.argus.ai.model | quote }}
+            - name: QDRANT_URL
+              value: {{ .Values.argus.qdrant.url | quote }}
+            {{- if .Values.argus.qdrant.apiKey }}
+            - name: QDRANT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helm-argus.fullname" . }}-agent-secrets
+                  key: qdrant-api-key
+            {{- end }}
+            - name: QDRANT_COLLECTION
+              value: {{ .Values.argus.qdrant.collection | quote }}
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helm-argus.fullname" . }}-agent-secrets
+                  key: slack-bot-token
+            - name: SLACK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helm-argus.fullname" . }}-agent-secrets
+                  key: slack-signing-secret
+            - name: SLACK_DEFAULT_CHANNEL
+              value: {{ .Values.argus.slack.defaultChannel | quote }}
+            {{- if .Values.argus.jira.enabled }}
+            - name: JIRA_URL
+              value: {{ .Values.argus.jira.url | quote }}
+            - name: JIRA_EMAIL
+              value: {{ .Values.argus.jira.email | quote }}
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helm-argus.fullname" . }}-agent-secrets
+                  key: jira-api-token
+            - name: JIRA_PROJECT_KEY
+              value: {{ .Values.argus.jira.projectKey | quote }}
+            {{- end }}
+            - name: DEPLOYMENT_TOOL
+              value: {{ .Values.argus.execution.deploymentTool | quote }}
+            - name: EXECUTION_DRY_RUN
+              value: {{ .Values.argus.execution.dryRun | quote }}
+            - name: CONFIDENCE_THRESHOLD
+              value: {{ .Values.argus.approval.confidenceThreshold | quote }}
+            {{- if .Values.monitoring.prometheus.enabled }}
+            - name: PROMETHEUS_URL
+              value: {{ .Values.monitoring.prometheus.url | quote }}
+            {{- end }}
+            {{- if .Values.monitoring.loki.enabled }}
+            - name: LOKI_URL
+              value: {{ .Values.monitoring.loki.url | quote }}
+            {{- end }}
+          {{- if .Values.argus.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.argus.livenessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.argus.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.argus.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.argus.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.argus.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.argus.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.argus.readinessProbe.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.argus.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.argus.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.argus.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.argus.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.argus.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,28 +1,27 @@
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: argus-agent-junior-role-binding
+  name: argus-junior-role-binding
   namespace: argus-agent-dev
 subjects:
-  - kind: User
-    name: junior@company.com
-    apiGroup: rbac.authorization.k8s.io
+  - kind: ServiceAccount
+    name: dev-sa
+    namespace: argus-agent-dev
 roleRef:
   kind: Role
-  name: argus-agent-junior-role
+  name: argus-junior-role
   apiGroup: rbac.authorization.k8s.io
 
 ---
-
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: argus-agent-senior-cluster-role-binding
+  name: argus-senior-role-binding
 subjects:
-  - kind: User
-    name: senior@company.com
-    apiGroup: rbac.authorization.k8s.io
+  - kind: ServiceAccount
+    name: prod-sa
+    namespace: argus-agent-prod
 roleRef:
   kind: ClusterRole
-  name: argus-agent-senior-cluster-role
+  name: argus-senior-cluster-role
   apiGroup: rbac.authorization.k8s.io

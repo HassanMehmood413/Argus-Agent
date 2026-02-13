@@ -293,9 +293,14 @@ class IncidentRepository:
 
         This is called when a user clicks Approve/Reject/Modify buttons.
         """
+        print("=" * 60)
+        print("[SLACK INTERACTION] Received Slack interaction webhook!")
+        print("=" * 60)
+
         # Parse the payload (Slack sends payload as form-encoded, not JSON)
         try:
             body_str = body.decode("utf-8")
+            print(f"[SLACK INTERACTION] Raw body length: {len(body_str)}")
 
             # Handle URL-encoded payload
             if body_str.startswith("payload="):

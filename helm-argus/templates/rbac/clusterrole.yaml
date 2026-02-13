@@ -1,0 +1,132 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "helm-argus.fullname" . }}-cluster-role
+  labels:
+    {{- include "helm-argus.labels" . | nindent 4 }}
+rules:
+  # ========================================
+  # MONITORING PERMISSIONS (Read-only)
+  # ========================================
+
+  # Read pod information and status
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/status
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Read pod logs for analysis
+  - apiGroups: [""]
+    resources:
+      - pods/log
+    verbs:
+      - get
+      - list
+
+  # Read deployment information
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - deployments/status
+      - replicasets
+      - replicasets/status
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Read Kubernetes events (OOMKilled, CrashLoopBackOff, etc.)
+  - apiGroups: [""]
+    resources:
+      - events
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Read services, configmaps, and namespaces
+  - apiGroups: [""]
+    resources:
+      - services
+      - configmaps
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Read StatefulSets and DaemonSets
+  - apiGroups: ["apps"]
+    resources:
+      - statefulsets
+      - statefulsets/status
+      - daemonsets
+      - daemonsets/status
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Read node information (for resource utilization)
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/status
+    verbs:
+      - get
+      - list
+      - watch
+
+  # ========================================
+  # EXECUTION PERMISSIONS (Write access)
+  # ========================================
+
+  # Update and patch deployments (for restart, image updates)
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+    verbs:
+      - patch
+      - update
+
+  # Scale deployments
+  - apiGroups: ["apps"]
+    resources:
+      - deployments/scale
+    verbs:
+      - get
+      - patch
+      - update
+
+  # Delete problematic pods
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs:
+      - delete
+      - deletecollection
+
+  # Rollback deployments (via creating rollback resources)
+  - apiGroups: ["apps"]
+    resources:
+      - deployments/rollback
+    verbs:
+      - create
+
+  # ========================================
+  # OPTIONAL: Helm Operations (if using Helm for rollbacks)
+  # ========================================
+  - apiGroups: [""]
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+    # Note: Helm stores release info in secrets with label owner=helm
+
+{{- end }}

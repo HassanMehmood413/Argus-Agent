@@ -7,7 +7,6 @@ from backend.modules.orchestrator.state import OrchestratorState
 from backend.config.settings import settings
 from backend.modules.monitors.graph import monitor_subgraph
 from backend.modules.analyzes.graph import analyzer_subgraph
-from backend.modules.approval.graph import approval_subgraph
 from backend.modules.execution.graph import executor_subgraph
 from backend.modules.summary.graph import summary_subgraph
 
@@ -179,14 +178,15 @@ async def run_analyzer_node(state: OrchestratorState) -> Dict[str, Any]:
 
 async def run_approval_node(state: OrchestratorState) -> Dict[str, Any]:
     """
-    Node 4a: Run the Approval subgraph for human-in-the-loop.
+    Node 4a: Request human approval via Slack and wait for decision.
 
-    This node invokes the approval subgraph which will:
-    1. Send a Slack message with approve/reject buttons
-    2. Pause at interrupt() waiting for human decision
-    3. Resume when the webhook receives the decision
+    This node:
+    1. Sends a Slack message with approve/reject buttons
+    2. Calls interrupt() to pause the orchestrator graph
+    3. Resumes when the API receives the decision via Command(resume=...)
 
-    NOTE: This node will BLOCK until the human makes a decision!
+    The interrupt happens in THIS node (not a subgraph) so the parent
+    orchestrator graph properly pauses and can be resumed.
 
     Reads: incident_id, severity, root_cause, confidence, evidence,
            recommended_actions, similar_incidents, slack_channel
@@ -199,56 +199,141 @@ async def run_approval_node(state: OrchestratorState) -> Dict[str, Any]:
     Returns:
         Dict with approval output fields
     """
+    from langgraph.types import interrupt
+    from backend.modules.approval.clients.slack import SlackClient
+
     incident_id = state.get("incident_id", "unknown")
 
-    logger.info(f"[Orchestrator] Running Approval subgraph for {incident_id}")
-    logger.info(f"[Orchestrator] This will pause until human approves/rejects")
+    print("=" * 60)
+    print(f"[APPROVAL NODE] Entered run_approval_node for {incident_id}")
+    print("=" * 60)
+    logger.info(f"[Orchestrator] Running Approval for {incident_id}")
 
-    # Map orchestrator state to approval input
-    approval_input = {
-        "incident_id": incident_id,
-        "severity": state.get("severity", "medium"),
-        "root_cause": state.get("root_cause", "Unknown"),
-        "confidence": state.get("confidence", 0.0),
-        "evidence": _extract_evidence(state),
-        "recommended_actions": state.get("recommended_actions", []),
-        "similar_incidents": state.get("similar_incidents", []),
-        "slack_channel": state.get("slack_channel", settings.SLACK_DEFAULT_CHANNEL),
-        "slack_thread_ts": state.get("slack_thread_ts"),
-    }
+    # ═══════════════════════════════════════════════════════════════════════
+    # STEP 1: Send approval request to Slack
+    # ═══════════════════════════════════════════════════════════════════════
+    # NOTE: When the graph resumes after interrupt(), this node re-executes.
+    # We check approval_requested_at in state to prevent duplicate messages.
+    slack_token = getattr(settings, "SLACK_BOT_TOKEN", None)
+    slack_channel = state.get("slack_channel", settings.SLACK_DEFAULT_CHANNEL)
+    approval_message_ts = None
+    slack_channel_id = None
 
-    # Use incident_id as thread_id for checkpointing
-    config = {"configurable": {"thread_id": incident_id}}
+    # Check if we've already sent the Slack message (from a previous run before interrupt)
+    already_requested = state.get("approval_requested_at") is not None
 
-    try:
-        # Invoke the approval subgraph
-        # This will BLOCK at interrupt() until human decision
-        result = await approval_subgraph.ainvoke(approval_input, config)
-
-        approved = result.get("approved", False)
-        logger.info(
-            f"[Orchestrator] Approval completed for {incident_id}: "
-            f"approved={approved}, by={result.get('approved_by', 'unknown')}"
+    if slack_token and not already_requested:
+        slack = SlackClient(
+            token=slack_token,
+            default_channel=slack_channel,
         )
+        result = await slack.send_approval_request(
+            incident_id=incident_id,
+            severity=state.get("severity", "unknown"),
+            root_cause=state.get("root_cause", "Unknown root cause"),
+            confidence=state.get("confidence", 0.0),
+            evidence=_extract_evidence(state),
+            recommended_actions=state.get("recommended_actions", []),
+            similar_incidents=state.get("similar_incidents"),
+            channel=slack_channel,
+            thread_ts=state.get("slack_thread_ts"),
+        )
+        if result.get("ok"):
+            approval_message_ts = result.get("ts")
+            slack_channel_id = result.get("channel")
+            logger.info(f"[Orchestrator] Slack approval request sent: channel={slack_channel_id}, ts={approval_message_ts}")
+        else:
+            logger.error(f"[Orchestrator] Slack send failed: {result.get('error')}")
+    elif already_requested:
+        logger.info(f"[Orchestrator] Approval already requested, skipping duplicate Slack message")
+    elif not slack_token:
+        logger.warning("[Orchestrator] No SLACK_BOT_TOKEN configured - approval request simulated")
 
-        return {
-            "status": "approved" if approved else "rejected",
-            "updated_at": datetime.utcnow().isoformat(),
-            "approved": approved,
-            "approved_by": result.get("approved_by"),
-            "approval_time": result.get("approval_time"),
-            "rejection_reason": result.get("rejection_reason"),
-            "modified_actions": result.get("modified_actions"),
-            "approval_requested_at": datetime.utcnow().isoformat(),
-        }
+    # ═══════════════════════════════════════════════════════════════════════
+    # STEP 2: INTERRUPT - Wait for human decision
+    # ═══════════════════════════════════════════════════════════════════════
+    # This pauses the ENTIRE orchestrator graph until Command(resume=...) is called
+    print("=" * 60)
+    print(f"[APPROVAL NODE] About to call interrupt() for {incident_id}")
+    print("[APPROVAL NODE] Graph will PAUSE here until Slack approval received")
+    print("=" * 60)
+    logger.info(f"[Orchestrator] Waiting for human decision on incident {incident_id}")
 
-    except Exception as e:
-        logger.error(f"[Orchestrator] Approval failed for {incident_id}: {e}")
-        return {
-            "status": "failed",
-            "error": f"Approval failed: {str(e)}",
-            "updated_at": datetime.utcnow().isoformat(),
-        }
+    decision = interrupt({
+        "type": "approval_required",
+        "incident_id": incident_id,
+        "slack_channel": slack_channel,
+        "slack_message_ts": approval_message_ts,
+        "pending_actions": state.get("recommended_actions", []),
+        "expected_response": {
+            "approved": "bool - True to approve, False to reject",
+            "approved_by": "str - User ID who made the decision",
+            "approved_by_name": "str (optional) - Human-readable name",
+            "rejection_reason": "str (optional) - Why rejected",
+            "modified_actions": "list (optional) - Modified action list",
+            "approval_notes": "str (optional) - Any notes from approver",
+        },
+        "resume_with": "Command(resume={'approved': True/False, 'approved_by': '...', ...})",
+    })
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # STEP 3: Process the decision (after resume)
+    # ═══════════════════════════════════════════════════════════════════════
+    print("=" * 60)
+    print(f"[APPROVAL NODE] Resumed from interrupt for {incident_id}!")
+    print(f"[APPROVAL NODE] Decision received: {decision}")
+    print("=" * 60)
+    logger.info(f"[Orchestrator] Decision received for {incident_id}: {decision}")
+
+    approved = decision.get("approved", False)
+    approved_by = decision.get("approved_by", "unknown")
+    approved_by_name = decision.get("approved_by_name")
+    rejection_reason = decision.get("rejection_reason")
+    modified_actions = decision.get("modified_actions")
+
+    # Get channel/message info from the decision (passed from Slack webhook)
+    decision_channel_id = decision.get("slack_channel_id")
+    decision_message_ts = decision.get("slack_message_ts")
+
+    # Log the decision
+    if approved:
+        logger.info(f"[Orchestrator] ✅ Incident {incident_id} APPROVED by {approved_by_name or approved_by}")
+    else:
+        logger.info(f"[Orchestrator] ❌ Incident {incident_id} REJECTED by {approved_by_name or approved_by}")
+        if rejection_reason:
+            logger.info(f"[Orchestrator] Rejection reason: {rejection_reason}")
+
+    # Update Slack message to show decision (if configured)
+    # Prefer channel/ts from decision (from webhook), fallback to local vars
+    update_channel = decision_channel_id or slack_channel_id or slack_channel
+    update_message_ts = decision_message_ts or approval_message_ts
+    if slack_token and update_channel and update_message_ts:
+        try:
+            slack = SlackClient(token=slack_token)
+            await slack.update_approval_message(
+                channel=update_channel,
+                message_ts=update_message_ts,
+                decision="approved" if approved else "rejected",
+                decided_by=approved_by,
+                decided_by_name=approved_by_name,
+                reason=rejection_reason,
+            )
+            logger.info(f"[Orchestrator] Updated Slack message for {incident_id}")
+        except Exception as e:
+            logger.warning(f"[Orchestrator] Failed to update Slack message: {e}")
+
+    return {
+        "status": "approved" if approved else "rejected",
+        "updated_at": datetime.utcnow().isoformat(),
+        "approved": approved,
+        "approved_by": approved_by,
+        "approved_by_name": approved_by_name,
+        "approval_time": datetime.utcnow().isoformat(),
+        "rejection_reason": rejection_reason,
+        "modified_actions": modified_actions,
+        "approval_notes": decision.get("approval_notes"),
+        "approval_requested_at": datetime.utcnow().isoformat(),
+    }
 
 
 def skip_approval_node(state: OrchestratorState) -> Dict[str, Any]:
@@ -568,30 +653,37 @@ def _extract_evidence(state: OrchestratorState) -> list:
     evidence = []
 
     # From metrics
-    metrics = state.get("metrics", {})
-    if metrics.get("cpu_usage_percent", 0) > 80:
-        evidence.append(f"High CPU usage: {metrics.get('cpu_usage_percent')}%")
-    if metrics.get("memory_usage_percent", 0) > 80:
-        evidence.append(f"High memory usage: {metrics.get('memory_usage_percent')}%")
-    if metrics.get("error_rate_percent", 0) > 5:
-        evidence.append(f"High error rate: {metrics.get('error_rate_percent')}%")
+    metrics = state.get("metrics") or {}
+    cpu_usage = metrics.get("cpu_usage_percent") or 0
+    memory_usage = metrics.get("memory_usage_percent") or 0
+    error_rate = metrics.get("error_rate_percent") or 0
+
+    if cpu_usage > 80:
+        evidence.append(f"High CPU usage: {cpu_usage}%")
+    if memory_usage > 80:
+        evidence.append(f"High memory usage: {memory_usage}%")
+    if error_rate > 5:
+        evidence.append(f"High error rate: {error_rate}%")
 
     # From pod status
-    pod_status = state.get("pod_status", {})
-    if pod_status.get("failed", 0) > 0:
-        evidence.append(f"{pod_status.get('failed')} failed pods")
-    if pod_status.get("unhealthy_pods", 0) > 0:
-        evidence.append(f"{pod_status.get('unhealthy_pods')} unhealthy pods")
+    pod_status = state.get("pod_status") or {}
+    failed_pods = pod_status.get("failed") or 0
+    unhealthy_pods = pod_status.get("unhealthy_pods") or 0
+
+    if failed_pods > 0:
+        evidence.append(f"{failed_pods} failed pods")
+    if unhealthy_pods > 0:
+        evidence.append(f"{unhealthy_pods} unhealthy pods")
 
     # From events
-    events = state.get("events", [])
-    oom_events = [e for e in events if "OOM" in str(e.get("reason", ""))]
+    events = state.get("events") or []
+    oom_events = [e for e in events if "OOM" in str((e.get("reason") if e else "") or "")]
     if oom_events:
         evidence.append(f"{len(oom_events)} OOMKilled events")
 
     # From recent deployments
-    deployments = state.get("recent_deployments", [])
-    if deployments:
+    deployments = state.get("recent_deployments") or []
+    if deployments and deployments[0]:
         latest = deployments[0]
         evidence.append(f"Recent deployment: {latest.get('name', 'unknown')}")
 

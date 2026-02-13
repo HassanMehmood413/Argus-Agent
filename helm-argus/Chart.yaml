@@ -1,0 +1,35 @@
+apiVersion: v2
+name: helm-argus
+description: Argus DevOps Agent - AI-powered incident management for Kubernetes
+
+# Application chart for deploying Argus with all dependencies
+type: application
+
+# Chart version - increment on changes
+version: 0.1.0
+
+# Application version - Argus agent version
+appVersion: "1.0.0"
+
+# Maintainers
+maintainers:
+  - name: Your Team
+    email: team@example.com
+
+# Dependencies - Using Bitnami production-ready charts
+dependencies:
+  # PostgreSQL for state storage (LangGraph checkpoints)
+  - name: postgresql
+    version: "15.5.38"  # Latest stable as of Feb 2025
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+    tags:
+      - argus-database
+
+  # Redis for caching and session storage
+  - name: redis
+    version: "20.5.0"  # Latest stable as of Feb 2025
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+    tags:
+      - argus-cache

@@ -4,10 +4,54 @@ DevOps Agent Backend
 FastAPI application for the DevOps incident management agent.
 """
 
+import logging
+import sys
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes_modules import agent_router, test_router
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOGGING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def setup_logging():
+    """Configure logging for the application."""
+    # Create formatter
+    formatter = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Remove existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Add stdout handler
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.INFO)
+    stdout_handler.setFormatter(formatter)
+    root_logger.addHandler(stdout_handler)
+
+    # Set specific loggers to DEBUG for webhook debugging
+    logging.getLogger("backend.routes_modules.agent").setLevel(logging.DEBUG)
+    logging.getLogger("backend.modules.orchestrator").setLevel(logging.DEBUG)
+    logging.getLogger("backend.modules.approval").setLevel(logging.DEBUG)
+
+    # Suppress noisy loggers
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+
+
+# Initialize logging
+setup_logging()
 
 
 def create_app() -> FastAPI:

@@ -24,17 +24,6 @@ def build_approval_subgraph() -> StateGraph:
 
     Returns:
         StateGraph ready for compilation
-
-    Usage:
-        # Development (in-memory)
-        from langgraph.checkpoint.memory import MemorySaver
-        graph = build_approval_subgraph()
-        compiled = graph.compile(checkpointer=MemorySaver())
-
-        # Production (PostgreSQL)
-        from langgraph.checkpoint.postgres import PostgresSaver
-        checkpointer = PostgresSaver.from_conn_string(db_url)
-        compiled = graph.compile(checkpointer=checkpointer)
     """
     # Create the graph with our state schema
     graph = StateGraph(ApprovalState)

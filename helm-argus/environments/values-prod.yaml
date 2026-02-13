@@ -1,0 +1,270 @@
+# ================================================================
+# PRODUCTION ENVIRONMENT CONFIGURATION
+# ================================================================
+# Use this for: Live production deployment
+# Goal: High availability, security, monitoring, backups
+# ================================================================
+
+# ----------------------------------------------------------------
+# Argus Agent Configuration
+# ----------------------------------------------------------------
+argus:
+  namespace: argus  # Production namespace
+
+  # 3 replicas for high availability
+  replicaCount: 3
+
+  # Docker image from production registry
+  image:
+    repository: myregistry/argus-agent  # CHANGE THIS to your registry
+    tag: "1.0.0"                         # Stable release version
+    pullPolicy: IfNotPresent
+
+  # Large resources for production
+  resources:
+    limits:
+      cpu: 2000m         # Max 2 CPU cores
+      memory: 2Gi        # Max 2 GB RAM
+    requests:
+      cpu: 1000m         # Reserve 1 CPU core
+      memory: 1Gi        # Reserve 1 GB RAM
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  ai:
+    model: "gpt-4o"
+    embeddingModel: "text-embedding-3-small"
+
+  qdrant:
+    url: "http://qdrant:6333"
+    apiKey: ""  # Use external secret in production
+    collection: "devops_incidents_prod"
+
+  slack:
+    defaultChannel: "#incidents"
+    approvalTimeoutHours: 24
+
+  jira:
+    enabled: true
+    url: "https://yourcompany.atlassian.net"
+    email: "devops@company.com"
+    projectKey: "POST"
+    issueType: "Task"
+
+  execution:
+    deploymentTool: "kubectl"
+    dryRun: false  # Execute actions for real
+    stopOnFailure: true
+    timeoutSeconds: 300
+    maxRetries: 3
+
+  approval:
+    confidenceThreshold: 0.7
+    autoApproveRiskLevels: "none,low"
+
+  secrets:
+    # In production, these should come from external secret manager
+    # e.g., AWS Secrets Manager, HashiCorp Vault, etc.
+    openaiApiKey: ""
+    slackBotToken: ""
+    slackSigningSecret: ""
+    jiraApiToken: ""
+
+# ----------------------------------------------------------------
+# PostgreSQL Configuration (using Bitnami chart)
+# ----------------------------------------------------------------
+postgresql:
+  enabled: true
+
+  auth:
+    username: argus
+    database: argus_prod
+    # IMPORTANT: Use existingSecret in production, not password
+    existingSecret: "postgres-secret"  # Kubernetes secret name
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+
+  primary:
+    # Production persistence settings
+    persistence:
+      enabled: true
+      size: 20Gi  # Large storage for production
+      storageClass: "fast-ssd"  # Use SSD storage class
+
+    # Large resources for production
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+
+    # Security context
+    podSecurityContext:
+      fsGroup: 1001
+    containerSecurityContext:
+      runAsUser: 1001
+      runAsNonRoot: true
+
+  # Enable monitoring with Prometheus
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true  # If using Prometheus Operator
+
+  # High Availability - enable replication
+  replication:
+    enabled: true
+    replicaCount: 2  # 1 master + 2 standbys
+
+  # Backup configuration (if using Bitnami)
+  backup:
+    enabled: false  # Configure external backup solution
+
+# ----------------------------------------------------------------
+# Redis Configuration (using Bitnami chart)
+# ----------------------------------------------------------------
+redis:
+  enabled: true
+
+  # Use replication for HA
+  architecture: replication
+
+  # IMPORTANT: Use existingSecret in production
+  auth:
+    enabled: true
+    existingSecret: "redis-secret"
+    existingSecretPasswordKey: "redis-password"
+
+  # Master configuration
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: "fast-ssd"
+
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+
+    podSecurityContext:
+      fsGroup: 1001
+    containerSecurityContext:
+      runAsUser: 1001
+      runAsNonRoot: true
+
+  # Replica configuration (read replicas)
+  replica:
+    replicaCount: 2  # 2 read replicas
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: "fast-ssd"
+
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+
+  # Enable monitoring
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+# ----------------------------------------------------------------
+# Monitoring Configuration
+# ----------------------------------------------------------------
+monitoring:
+  prometheus:
+    enabled: true
+    url: "http://prometheus-kube-prometheus-prometheus.monitoring:9090"
+
+  loki:
+    enabled: true
+    url: "http://loki.monitoring:3100"
+
+  grafana:
+    enabled: true
+    url: "http://prometheus-grafana.monitoring:80"
+
+# ----------------------------------------------------------------
+# Autoscaling (production)
+# ----------------------------------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# ----------------------------------------------------------------
+# Security Context (strict for production)
+# ----------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# ----------------------------------------------------------------
+# Pod Anti-Affinity (spread pods across nodes)
+# ----------------------------------------------------------------
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - argus-agent
+        topologyKey: kubernetes.io/hostname
+
+# ----------------------------------------------------------------
+# Network Policy (optional - enable for security)
+# ----------------------------------------------------------------
+# networkPolicy:
+#   enabled: true
+#   ingress:
+#     - from:
+#       - namespaceSelector:
+#           matchLabels:
+#             name: monitoring

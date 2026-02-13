@@ -1,0 +1,324 @@
+# ========================================
+# Argus DevOps Agent - Helm Values (Bitnami)
+# Using Bitnami PostgreSQL and Redis charts
+# ========================================
+
+# ----------------------------------------
+# General Configuration
+# ----------------------------------------
+nameOverride: ""
+fullnameOverride: ""
+
+# ----------------------------------------
+# RBAC Configuration
+# ----------------------------------------
+rbac:
+  create: true
+
+# ----------------------------------------
+# Service Account Configuration
+# ----------------------------------------
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: "argus-agent-sa"
+
+# ----------------------------------------
+# Argus Agent Configuration
+# ----------------------------------------
+argus:
+  namespace: dev-argus
+  replicaCount: 2
+
+  image:
+    repository: your-registry/argus-agent
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+
+  livenessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  ai:
+    model: "gpt-4o"
+    embeddingModel: "text-embedding-3-small"
+
+  qdrant:
+    url: "http://qdrant:6333"
+    apiKey: ""
+    collection: "devops_incidents"
+
+  slack:
+    defaultChannel: "#incidents"
+    approvalTimeoutHours: 24
+
+  jira:
+    enabled: true
+    url: "https://yourcompany.atlassian.net"
+    email: "your-email@company.com"
+    projectKey: "POST"
+    issueType: "Task"
+
+  execution:
+    deploymentTool: "kubectl"
+    dryRun: false
+    stopOnFailure: true
+    timeoutSeconds: 300
+    maxRetries: 3
+    retryDelay: 1.0
+    retryBackoff: 2.0
+
+  approval:
+    confidenceThreshold: 0.7
+    autoApproveRiskLevels: "none,low"
+
+  analyzer:
+    maxSimilarIncidents: 3
+    similarityThreshold: 0.3
+    maxActions: 3
+
+  secrets:
+    openaiApiKey: ""
+    slackBotToken: ""
+    slackSigningSecret: ""
+    jiraApiToken: ""
+    qdrantApiKey: ""
+
+# ----------------------------------------
+# Bitnami PostgreSQL Configuration
+# Docs: https://github.com/bitnami/charts/tree/main/bitnami/postgresql
+# ----------------------------------------
+postgresql:
+  enabled: true
+
+  # PostgreSQL authentication
+  auth:
+    # Root/admin username
+    username: argus
+    # Database name
+    database: argus
+    # Password will be auto-generated if not set
+    # Or set via: --set postgresql.auth.password=xxx
+    password: ""
+    # Use existing secret (recommended for production)
+    existingSecret: ""
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+
+  # PostgreSQL version
+  image:
+    tag: "16.4.0-debian-12-r5"
+
+  # Primary configuration
+  primary:
+    # Enable persistence
+    persistence:
+      enabled: true
+      storageClass: ""  # Use default storage class
+      size: 5Gi
+
+    # Resource limits
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+
+    # PostgreSQL configuration
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+    containerSecurityContext:
+      enabled: true
+      runAsUser: 1001
+      runAsNonRoot: true
+
+  # Metrics (Prometheus exporter)
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false  # Enable if using Prometheus Operator
+
+  # Network Policy
+  networkPolicy:
+    enabled: false  # Enable for production
+
+# ----------------------------------------
+# Bitnami Redis Configuration
+# Docs: https://github.com/bitnami/charts/tree/main/bitnami/redis
+# ----------------------------------------
+redis:
+  enabled: true
+
+  # Redis architecture (standalone or replication)
+  architecture: standalone
+
+  # Redis authentication
+  auth:
+    enabled: false  # Enable for production
+    password: ""
+    existingSecret: ""
+    existingSecretPasswordKey: ""
+
+  # Redis version
+  image:
+    tag: "7.4.1-debian-12-r5"
+
+  # Master configuration
+  master:
+    # Enable persistence
+    persistence:
+      enabled: true
+      storageClass: ""  # Use default storage class
+      size: 5Gi
+
+    # Resource limits
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+
+    # Security context
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+    containerSecurityContext:
+      enabled: true
+      runAsUser: 1001
+      runAsNonRoot: true
+
+  # Metrics (Prometheus exporter)
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false  # Enable if using Prometheus Operator
+
+  # Network Policy
+  networkPolicy:
+    enabled: false  # Enable for production
+
+# ----------------------------------------
+# Monitoring Configuration
+# ----------------------------------------
+monitoring:
+  prometheus:
+    enabled: true
+    url: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+
+  loki:
+    enabled: true
+    url: "http://loki.monitoring.svc.cluster.local:3100"
+
+  grafana:
+    enabled: false
+    url: "http://prometheus-grafana.monitoring.svc.cluster.local:80"
+
+# ----------------------------------------
+# Ingress Configuration (Optional)
+# ----------------------------------------
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: argus.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ----------------------------------------
+# Horizontal Pod Autoscaler (Optional)
+# ----------------------------------------
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# ----------------------------------------
+# Pod Security Context
+# ----------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# ----------------------------------------
+# Container Security Context
+# ----------------------------------------
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# ----------------------------------------
+# Node Selection and Affinity
+# ----------------------------------------
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - argus-agent
+          topologyKey: kubernetes.io/hostname
+
+# ----------------------------------------
+# Additional Pod Annotations and Labels
+# ----------------------------------------
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"
+
+podLabels:
+  app: argus-agent
+  component: incident-management
