@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crash-simulator
+  namespace: target-apps
+  labels:
+    app: crash-simulator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: crash-simulator
+  template:
+    metadata:
+      labels:
+        app: crash-simulator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: crash-app
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "$(date) - App starting up..."
+              echo "$(date) - Connecting to database..."
+              sleep 5
+              echo "$(date) - ERROR: Connection refused to database at db:5432"
+              echo "$(date) - ERROR: Fatal - cannot initialize application"
+              echo "$(date) - Shutting down with exit code 1"
+              exit 1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

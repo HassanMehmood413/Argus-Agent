@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-hog
+  namespace: target-apps
+  labels:
+    app: memory-hog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-hog
+  template:
+    metadata:
+      labels:
+        app: memory-hog
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      containers:
+        - name: memory-hog
+          image: python:3.13-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - -c
+            - |
+              import time, sys, os
+
+              print(f"[{time.strftime('%H:%M:%S')}] Memory hog starting...")
+              print(f"[{time.strftime('%H:%M:%S')}] PID: {os.getpid()}")
+              print(f"[{time.strftime('%H:%M:%S')}] Memory limit: 64Mi")
+
+              data = []
+              chunk_size = 5 * 1024 * 1024  # 5MB chunks
+
+              while True:
+                  try:
+                      data.append(b'X' * chunk_size)
+                      used_mb = len(data) * 5
+                      print(f"[{time.strftime('%H:%M:%S')}] Allocated {used_mb}MB - WARNING: memory growing")
+                      if used_mb > 40:
+                          print(f"[{time.strftime('%H:%M:%S')}] ERROR: Memory critical at {used_mb}MB!")
+                      time.sleep(3)
+                  except MemoryError:
+                      print(f"[{time.strftime('%H:%M:%S')}] FATAL: OutOfMemoryError!")
+                      sys.exit(137)
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
