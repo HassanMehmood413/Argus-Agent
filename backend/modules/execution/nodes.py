@@ -60,10 +60,14 @@ def get_executor() -> KubernetesExecutor:
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Actions that auto-execute without human approval
-AUTO_EXECUTE_RISK_LEVELS = ["none", "low"]
+# NOTE: "medium" included because the orchestrator already does a top-level
+# approval. Per-action interrupt() in the executor doesn't propagate back
+# to the orchestrator (separate graph invocation), so medium-risk actions
+# would silently fail. Only "high" risk gets a second approval.
+AUTO_EXECUTE_RISK_LEVELS = ["none", "low", "medium"]
 
 # Actions that require human approval before execution
-REQUIRE_APPROVAL_RISK_LEVELS = ["medium", "high"]
+REQUIRE_APPROVAL_RISK_LEVELS = ["high"]
 
 
 def get_action_risk_level(action: Dict[str, Any]) -> str:

@@ -17,7 +17,8 @@ data:
   EMBEDDING_MODEL: "text-embedding-3-small"
 
   # Qdrant
-  QDRANT_URL: "http://qdrant-service:6333"
+  QDRANT_URL: ""
+  QDRANT_API_KEY: ""
   QDRANT_COLLECTION: "devops_incidents"
 
   # Analyzer
@@ -28,12 +29,12 @@ data:
   # Approval
   CONFIDENCE_THRESHOLD: "0.7"
   AUTO_APPROVE_RISK_LEVELS: "none,low"
-  SLACK_DEFAULT_CHANNEL: "#incidents"
+  SLACK_DEFAULT_CHANNEL: "#all-agentchecking"
   SLACK_APPROVAL_TIMEOUT_HOURS: "24"
 
   # Execution
   DEPLOYMENT_TOOL: "kubectl"
-  EXECUTION_DRY_RUN: "true"
+  EXECUTION_DRY_RUN: "false"
   EXECUTION_STOP_ON_FAILURE: "true"
   EXECUTION_TIMEOUT_SECONDS: "300"
   EXECUTION_MAX_RETRIES: "3"

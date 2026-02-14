@@ -141,7 +141,7 @@ class KubernetesExecutor:
         deployment_name: str,
         to_revision: Optional[int],
     ) -> Dict[str, Any]:
-        """Roll back using native Kubernetes API."""
+        """Roll back using native Kubernetes Python API (no kubectl CLI needed)."""
         if not self._initialized:
             return self._error_result("Kubernetes client not initialized")
 
@@ -156,24 +156,80 @@ class KubernetesExecutor:
                 "deployment.kubernetes.io/revision", "unknown"
             )
 
-            cmd = ["kubectl", "rollout", "undo", f"deployment/{deployment_name}", "-n", namespace]
+            # Get all ReplicaSets for this deployment
+            label_selector = ",".join(
+                f"{k}={v}"
+                for k, v in (deployment.spec.selector.match_labels or {}).items()
+            )
+            replica_sets = self.apps_v1.list_namespaced_replica_set(
+                namespace=namespace,
+                label_selector=label_selector,
+            )
+
+            # Sort ReplicaSets by revision (descending)
+            sorted_rs = sorted(
+                replica_sets.items,
+                key=lambda rs: int(
+                    rs.metadata.annotations.get(
+                        "deployment.kubernetes.io/revision", "0"
+                    )
+                ),
+                reverse=True,
+            )
+
+            if len(sorted_rs) < 2:
+                # No previous revision to roll back to -- do a rolling restart instead
+                logger.warning(
+                    f"[K8sExecutor] No previous revision for {deployment_name}, "
+                    "performing rolling restart instead"
+                )
+                return await self._rolling_restart(namespace, deployment_name)
+
+            # Find the target ReplicaSet
             if to_revision:
-                cmd.extend(["--to-revision", str(to_revision)])
-
-            result = await self._run_command(cmd)
-
-            if result["returncode"] == 0:
-                return {
-                    "success": True,
-                    "action": "rollback",
-                    "target": deployment_name,
-                    "namespace": namespace,
-                    "previous_revision": current_revision,
-                    "rolled_back_to": to_revision or "previous",
-                    "output": result["stdout"],
-                }
+                target_rs = next(
+                    (
+                        rs for rs in sorted_rs
+                        if rs.metadata.annotations.get(
+                            "deployment.kubernetes.io/revision"
+                        ) == str(to_revision)
+                    ),
+                    None,
+                )
+                if not target_rs:
+                    return self._error_result(
+                        f"Revision {to_revision} not found", "rollback", deployment_name
+                    )
             else:
-                return self._error_result(result["stderr"], "rollback", deployment_name)
+                # Previous revision = second in the sorted list
+                target_rs = sorted_rs[1]
+
+            target_revision = target_rs.metadata.annotations.get(
+                "deployment.kubernetes.io/revision", "unknown"
+            )
+
+            # Patch the deployment's pod template with the target RS's template
+            patch_body = {
+                "spec": {
+                    "template": target_rs.spec.template.to_dict()
+                }
+            }
+
+            self.apps_v1.patch_namespaced_deployment(
+                name=deployment_name,
+                namespace=namespace,
+                body=patch_body,
+            )
+
+            return {
+                "success": True,
+                "action": "rollback",
+                "target": deployment_name,
+                "namespace": namespace,
+                "previous_revision": current_revision,
+                "rolled_back_to": target_revision,
+                "output": f"Rolled back {deployment_name} from revision {current_revision} to {target_revision}",
+            }
 
         except ApiException as e:
             return self._error_result(f"API error: {e.reason}", "rollback", deployment_name)
@@ -279,21 +335,47 @@ class KubernetesExecutor:
         namespace: str,
         deployment_name: str,
     ) -> Dict[str, Any]:
-        """Perform rolling restart using kubectl rollout restart."""
-        cmd = ["kubectl", "rollout", "restart", f"deployment/{deployment_name}", "-n", namespace]
-        result = await self._run_command(cmd)
+        """Perform rolling restart using Python Kubernetes API (no kubectl CLI needed).
 
-        if result["returncode"] == 0:
+        Works by patching the deployment with a restart annotation,
+        which triggers a rolling update of all pods.
+        """
+        if not self._initialized:
+            return self._error_result("Kubernetes client not initialized")
+
+        try:
+            restart_time = datetime.utcnow().isoformat() + "Z"
+            patch_body = {
+                "spec": {
+                    "template": {
+                        "metadata": {
+                            "annotations": {
+                                "kubectl.kubernetes.io/restartedAt": restart_time
+                            }
+                        }
+                    }
+                }
+            }
+
+            self.apps_v1.patch_namespaced_deployment(
+                name=deployment_name,
+                namespace=namespace,
+                body=patch_body,
+            )
+
             return {
                 "success": True,
                 "action": "restart_pods",
                 "target": deployment_name,
                 "namespace": namespace,
                 "method": "rolling",
-                "output": result["stdout"],
+                "output": f"Rolling restart triggered for {deployment_name} at {restart_time}",
             }
-        else:
-            return self._error_result(result["stderr"], "restart_pods", deployment_name)
+
+        except ApiException as e:
+            return self._error_result(f"API error: {e.reason}", "restart_pods", deployment_name)
+        except Exception as e:
+            return self._error_result(str(e), "restart_pods", deployment_name)
 
     async def _delete_pods(
         self,

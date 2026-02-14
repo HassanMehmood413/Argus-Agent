@@ -3,7 +3,10 @@
 .cursor
 .vscode
 .idea
-
+helm-argus/
+/helm-argus/
+helm-argus
+/helm-argus
 # Environment
 .env
 .env.*

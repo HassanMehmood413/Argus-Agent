@@ -11,6 +11,7 @@ from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
+    PayloadSchemaType,
 )
 
 from backend.config.settings import settings
@@ -128,6 +129,7 @@ class QdrantIncidentStore:
     def ensure_collection(self) -> None:
         """
         Ensure the collection exists, create if not.
+        Also ensures required payload indexes exist for filtering.
         """
         collections = self.client.get_collections().collections
         collection_names = [c.name for c in collections]
@@ -141,6 +143,20 @@ class QdrantIncidentStore:
                 ),
             )
             print(f"[Qdrant] Created collection: {self.collection_name}")
+
+        # Ensure payload indexes exist (required by Qdrant Cloud for filtering)
+        try:
+            collection_info = self.client.get_collection(self.collection_name)
+            existing_indexes = collection_info.payload_schema or {}
+            if "service" not in existing_indexes:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="service",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                print("[Qdrant] Created payload index on 'service' field")
+        except Exception as e:
+            print(f"[Qdrant] Warning: Could not create payload index: {e}")
 
     def seed_incidents(self, incidents: List[Dict[str, Any]] | None = None) -> None:
         """
@@ -236,10 +252,10 @@ class QdrantIncidentStore:
                 ]
             )
 
-        # Search Qdrant
-        results = self.client.search(
+        # Search Qdrant (query_points replaces deprecated search in qdrant-client >= 1.12)
+        response = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_embedding,
+            query=query_embedding,
             query_filter=search_filter,
             limit=limit * 2,  # Get more to filter by threshold
             score_threshold=score_threshold,
@@ -247,7 +263,7 @@ class QdrantIncidentStore:
 
         # Convert results to incident format
         similar_incidents = []
-        for result in results[:limit]:
+        for result in response.points[:limit]:
             payload = result.payload
             similar_incidents.append(
                 {

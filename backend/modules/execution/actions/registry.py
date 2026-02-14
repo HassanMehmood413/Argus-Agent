@@ -485,7 +485,7 @@ async def execute_notify_oncall(
             }
         ]
 
-        result = await slack.client.chat_postMessage(
+        result = slack.client.chat_postMessage(
             channel=settings.SLACK_DEFAULT_CHANNEL,
             blocks=blocks,
             text=f"On-Call: {message}",
